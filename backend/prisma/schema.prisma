@@ -1,0 +1,58 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Room {
+  id               String           @id
+  isPrivate        Boolean          @default(false)
+  roomKeyHash      String?
+  roomKeySalt      String?
+  documentJson     Json
+  documentVersion  Int              @default(1)
+  lastActivityAt   DateTime         @default(now())
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+  files            FileAsset[]
+  uploadSessions   UploadSession[]
+
+  @@index([lastActivityAt])
+}
+
+model FileAsset {
+  id              String   @id @default(cuid())
+  roomId          String
+  room            Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  originalName    String
+  safeName        String
+  mimeType        String
+  size            Int
+  storageKey      String   @unique
+  createdAt       DateTime @default(now())
+
+  @@index([roomId])
+}
+
+model UploadSession {
+  id              String   @id @default(cuid())
+  roomId          String
+  room            Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  fileName        String
+  safeName        String
+  mimeType        String
+  fileSize        Int
+  chunkSize       Int
+  totalChunks     Int
+  tmpDir          String
+  status          String   @default("pending")
+  expiresAt       DateTime
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([roomId])
+  @@index([expiresAt])
+}

@@ -1,0 +1,12 @@
+node_modules
+.env
+.env.*
+!.env.example
+frontend/dist
+backend/dist
+backend/prisma/dev.db
+backend/prisma/dev.db-journal
+backend/uploads
+backend/.turbo
+.DS_Store
+coverage
