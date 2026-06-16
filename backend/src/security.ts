@@ -41,6 +41,40 @@ export function verifyAccessToken(token: string) {
   return payload.roomId;
 }
 
+export function createDownloadToken(
+  roomId: string,
+  fileId: string
+) {
+  return jwt.sign(
+    {
+      roomId,
+      fileId,
+      purpose: 'download'
+    },
+    env.JWT_SECRET,
+    {
+      expiresIn: '10m'
+    }
+  );
+}
+
+export function verifyDownloadToken(token: string) {
+  const payload = jwt.verify(token, env.JWT_SECRET);
+
+  if (
+    typeof payload === 'string' ||
+    payload.purpose !== 'download'
+  ) {
+    throw new Error('Invalid download token');
+  }
+
+  return payload as {
+    roomId: string;
+    fileId: string;
+    purpose: 'download';
+  };
+}
+
 export function normalizeRoomId(roomId: string) {
   return roomId.trim();
 }

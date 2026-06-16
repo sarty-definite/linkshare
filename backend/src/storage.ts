@@ -15,6 +15,12 @@ interface StorageAdapter {
   saveFile(sourcePath: string, object: StoredObject): Promise<void>;
   deleteFile(key: string): Promise<void>;
   createReadStream(key: string): Promise<ObjectStream>;
+
+  createDownloadUrl?(
+    key: string,
+    fileName: string,
+    expiresInSeconds: number
+  ): Promise<string>;
 }
 
 const localRoot = path.resolve(env.LOCAL_STORAGE_DIR);

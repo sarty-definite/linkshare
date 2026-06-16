@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Navigate, Route, Routes, useNavigate, useParams } from 'react-router-dom';
-import { createRoom, createUploadSession, downloadUrl, fetchRoomState, finalizeUpload, getUploadStatus, joinRoom, roomExists, saveRoomContent, uploadChunk, type FileAsset } from './lib/api';
+import { createRoom, createUploadSession, fetchRoomState, finalizeUpload, getDownloadUrl, getUploadStatus, joinRoom, roomExists, saveRoomContent, uploadChunk, type FileAsset } from './lib/api';
 import { createRoomSocket } from './lib/socket';
 import { EditorContent, useEditor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
@@ -357,13 +357,29 @@ function RoomPage() {
           <h2>Files</h2>
           <span>Synced in real time</span>
         </div>
-        <UploadArea roomId={roomId} token={token} onUploaded={(file) => setState((current) => current ? { ...current, files: [file, ...current.files] } : current)} />
+        <UploadArea roomId={roomId} token={token} onUploaded={(file) => setState((current) => current )} />
         <div className="file-list">
           {state?.files.map((file) => (
-            <a key={file.id} className="file-card" href={downloadUrl(roomId, file.id)} target="_blank" rel="noreferrer">
-              <strong>{file.originalName}</strong>
+            <button
+                key={file.id}
+                className="file-card"
+                onClick={async () => {
+                    try {
+                    const url = await getDownloadUrl(
+                        roomId,
+                        file.id,
+                        token
+                    );
+
+                    window.open(url, '_blank');
+                    } catch {
+                    alert('Download failed');
+                    }
+                }}
+                >
+               <strong>{file.originalName}</strong>
               <span>{Math.ceil(file.size / 1024)} KB · {file.mimeType}</span>
-            </a>
+            </button>
           ))}
         </div>
       </section>

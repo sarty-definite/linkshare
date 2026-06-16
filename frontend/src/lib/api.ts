@@ -109,6 +109,16 @@ export async function getUploadStatus(roomId: string, token: string, uploadId: s
   return response.data as { uploadId: string; totalChunks: number; receivedChunks: number; status: string; expiresAt: string };
 }
 
-export function downloadUrl(roomId: string, fileId: string) {
-  return `${api.defaults.baseURL}/api/rooms/${encodeURIComponent(roomId)}/files/${fileId}/download`;
+export async function getDownloadUrl(
+  roomId: string,
+  fileId: string,
+  token: string
+) {
+  const response = await api.post(
+    `/api/rooms/${encodeURIComponent(roomId)}/files/${fileId}/download-url`,
+    {},
+    { headers: { authorization: `Bearer ${token}` } }
+  );
+
+  return response.data.url as string;
 }

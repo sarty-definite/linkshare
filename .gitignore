@@ -10,3 +10,5 @@ backend/uploads
 backend/.turbo
 .DS_Store
 coverage
+package-lock.json
+yarn.lock

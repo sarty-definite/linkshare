@@ -21,7 +21,9 @@ import {
   sanitizeUploadName,
   signAccessToken,
   starterDocument,
-  verifyAccessToken
+  verifyAccessToken,
+  createDownloadToken,
+  verifyDownloadToken
 } from './security.js';
 import { storage } from './storage.js';
 
@@ -61,8 +63,8 @@ const uploadCreateSchema = z.object({
 const activeRooms = new Map<string, Set<string>>();
 const pendingCleanup = new Map<string, NodeJS.Timeout>();
 
-function blankDocumentJson() {
-  return starterDocument as Record<string, unknown>;
+function blankDocumentJson(): Prisma.InputJsonValue {
+  return starterDocument;
 }
 
 function getBearerToken(req: Request) {
@@ -445,6 +447,41 @@ app.post('/api/rooms/:roomId/uploads/:uploadId/finalize', uploadLimiter, async (
   }
 });
 
+app.post(
+  '/api/rooms/:roomId/files/:fileId/download-url',
+  async (req, res, next) => {
+    try {
+      const roomId = normalizeRoomId(req.params.roomId);
+
+      await requireRoomAuth(req, roomId);
+
+      const file = await prisma.fileAsset.findUnique({
+        where: {
+          id: req.params.fileId
+        }
+      });
+
+      if (!file || file.roomId !== roomId) {
+        return res.status(404).json({
+          error: 'File not found'
+        });
+      }
+
+      const token = createDownloadToken(
+        roomId,
+        file.id
+      );
+
+      res.json({
+        url: `${env.API_URL}/api/download/${token}`
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+
 app.get('/api/rooms/:roomId/files/:fileId/download', async (req, res, next) => {
   try {
     const roomId = normalizeRoomId(req.params.roomId);
@@ -462,6 +499,59 @@ app.get('/api/rooms/:roomId/files/:fileId/download', async (req, res, next) => {
     next(error);
   }
 });
+
+
+app.get(
+  '/api/download/:token',
+  async (req, res, next) => {
+    try {
+      const {
+        roomId,
+        fileId
+      } = verifyDownloadToken(
+        req.params.token
+      );
+
+      const file =
+        await prisma.fileAsset.findUnique({
+          where: {
+            id: fileId
+          }
+        });
+
+      if (
+        !file ||
+        file.roomId !== roomId
+      ) {
+        return res.status(404).json({
+          error: 'File not found'
+        });
+      }
+
+      const stream =
+        await storage.createReadStream(
+          file.storageKey
+        );
+
+      res.setHeader(
+        'Content-Type',
+        file.mimeType
+      );
+
+      res.setHeader(
+        'Content-Disposition',
+        `attachment; filename*=UTF-8''${encodeURIComponent(
+          file.originalName
+        )}`
+      );
+
+      stream.on('error', next);
+      stream.pipe(res);
+    } catch (error) {
+      next(error);
+    }
+  }
+);
 
 app.use((error: unknown, _req: Request, res: Response, _next: NextFunction) => {
   const message = error instanceof Error ? error.message : 'Unexpected server error';

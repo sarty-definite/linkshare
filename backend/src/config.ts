@@ -7,6 +7,7 @@ const envSchema = z.object({
   DATABASE_URL: z.string().min(1),
   PORT: z.coerce.number().int().positive().default(4000),
   CLIENT_ORIGIN: z.string().min(1),
+  API_URL: z.string().min(1),
   JWT_SECRET: z.string().min(32),
   STORAGE_PROVIDER: z.enum(['local', 's3']).default('local'),
   LOCAL_STORAGE_DIR: z.string().default(path.join(process.cwd(), 'uploads')),
