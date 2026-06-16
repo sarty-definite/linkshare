@@ -7,7 +7,7 @@ export const roomIdSchema = z.string().trim().regex(/^[a-zA-Z0-9_-]{3,64}$/);
 export const createRoomSchema = z.object({
   roomId: roomIdSchema,
   privateRoom: z.boolean(),
-  roomKey: z.string().min(16).max(256).optional()
+  roomKey: z.string().min(4).max(256).optional()
 });
 
 export const joinRoomSchema = z.object({

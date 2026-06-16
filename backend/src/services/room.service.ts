@@ -75,15 +75,15 @@ export class RoomService {
   static async joinRoom(roomId: string, roomKey?: string) {
     const room = await RoomRepository.findById(roomId);
     if (!room) {
-      throw new Error('Room does not exist');
+      throw new Error('Room does not exist.');
     }
 
     if (room.isPrivate) {
       if (!roomKey || !room.roomKeyHash || !room.roomKeySalt) {
-        throw new Error('Room key required');
+        throw new Error('Room key required.');
       }
       if (!compareRoomKey(roomKey, room.roomKeySalt, room.roomKeyHash)) {
-        throw new Error('Invalid room key');
+        throw new Error('Invalid room key.');
       }
     }
 

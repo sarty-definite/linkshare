@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Navigate, Route, Routes, useNavigate, useParams } from 'react-router-dom';
 import { createRoom, createUploadSession, fetchRoomState, finalizeUpload, getDownloadUrl, getUploadStatus, joinRoom, roomExists, saveRoomContent, uploadChunk, type FileAsset } from './lib/api';
 import { createRoomSocket } from './lib/socket';
@@ -14,9 +14,10 @@ import Underline from '@tiptap/extension-underline';
 import { Socket } from 'socket.io-client';
 
 function randomRoomKey() {
-  const bytes = new Uint8Array(24);
-  crypto.getRandomValues(bytes);
-  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+  const array = new Uint32Array(1);
+  crypto.getRandomValues(array);
+
+  return (array[0] % 1000000).toString().padStart(6, '0');
 }
 
 function getStoredToken(roomId: string) {
@@ -42,44 +43,60 @@ function debounce<T extends (...args: any[]) => void>(func: T, delay: number): (
 function HomePage() {
   const navigate = useNavigate();
   const [roomId, setRoomId] = useState('');
-  const [isPrivate, setIsPrivate] = useState(false);
-  const [roomKey, setRoomKey] = useState(randomRoomKey);
-  const [revealKey, setRevealKey] = useState(false);
   const [status, setStatus] = useState<string>('');
   const [joinKey, setJoinKey] = useState('');
-  const [joinPrompt, setJoinPrompt] = useState<{ roomId: string; privateRoom: boolean } | null>(null);
 
   async function handleCreate() {
     try {
-      setStatus('Creating room...');
       const normalizedRoomId = roomId.trim();
-      const response = await createRoom({ roomId: normalizedRoomId, privateRoom: isPrivate, roomKey: isPrivate ? roomKey : undefined });
+      const trimmedKey = joinKey.trim();
+      const hasPrivateKey = Boolean(trimmedKey);
+
+      if (hasPrivateKey && (trimmedKey.length < 4 || trimmedKey.length > 256)) {
+        setStatus('Private key must be between 4 and 256 characters long.');
+        return;
+      }
+
+      setStatus('Creating room...');
+      const response = await createRoom({
+        roomId: normalizedRoomId,
+        privateRoom: hasPrivateKey,
+        roomKey: hasPrivateKey ? trimmedKey : undefined
+      });
       setStoredToken(response.roomId, response.accessToken);
       setStatus('Room created.');
       navigate(`/${response.roomId}`);
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : 'Room creation failed');
+      const message = error instanceof Error ? error.message : 'Room creation failed';
+      setStatus(message);
     }
   }
 
   async function handleJoin() {
     try {
-      setStatus('Checking room...');
       const normalizedRoomId = roomId.trim();
+      const trimmedKey = joinKey.trim();
+      const hasPrivateKey = Boolean(trimmedKey);
+
+      if (hasPrivateKey && (trimmedKey.length < 4 || trimmedKey.length > 256)) {
+        setStatus('Private key must be between 4 and 256 characters long.');
+        return;
+      }
+
+      setStatus('Checking room...');
       const exists = await roomExists(normalizedRoomId);
       if (!exists.exists) {
-        setJoinPrompt({ roomId: normalizedRoomId, privateRoom: isPrivate });
         setStatus('Room does not exist.');
         return;
       }
-      const response = await joinRoom({ roomId: normalizedRoomId, roomKey: isPrivate ? joinKey : undefined });
+      const response = await joinRoom({
+        roomId: normalizedRoomId,
+        roomKey: hasPrivateKey ? trimmedKey : undefined
+      });
       setStoredToken(response.roomId, response.accessToken);
       navigate(`/${response.roomId}`);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Join failed';
-      if (message.includes('404')) {
-        setJoinPrompt({ roomId: roomId.trim(), privateRoom: isPrivate });
-      }
       setStatus(message);
     }
   }
@@ -99,23 +116,13 @@ function HomePage() {
             <span>Room ID</span>
             <input value={roomId} onChange={(event) => setRoomId(event.target.value)} placeholder="project-alpha" autoComplete="off" />
           </label>
-          <label className="checkbox-row">
-            <input type="checkbox" checked={isPrivate} onChange={(event) => setIsPrivate(event.target.checked)} />
-            <span>Keep Room Private</span>
-          </label>
-          {isPrivate && (
-            <div className="key-reveal" onMouseEnter={() => setRevealKey(true)} onMouseLeave={() => setRevealKey(false)} onClick={() => setRevealKey((value) => !value)}>
-              <div className="key-label">Room key</div>
-              <div className="key-value">{revealKey ? roomKey : '••••••••••••••••••••••••••••••••'}</div>
-              <button type="button" className="ghost-button" onClick={() => setRoomKey(randomRoomKey())}>Regenerate key</button>
+          <label className="field">
+            <span>Private Key</span>
+            <div className="input-with-button">
+              <input value={joinKey} onChange={(event) => setJoinKey(event.target.value)} placeholder="(Optional)" autoComplete="off" />
+              <button type="button" className="inline-button" onClick={() => setJoinKey(randomRoomKey())}>Generate</button>
             </div>
-          )}
-          {isPrivate && (
-            <label className="field">
-              <span>Key to join a private room</span>
-              <input value={joinKey} onChange={(event) => setJoinKey(event.target.value)} placeholder="Paste private room key" autoComplete="off" />
-            </label>
-          )}
+          </label>
           <div className="actions">
             <button type="button" className="primary-button" onClick={handleCreate}>Create Room</button>
             <button type="button" className="secondary-button" onClick={handleJoin}>Join Room</button>
@@ -123,18 +130,6 @@ function HomePage() {
           {status && <div className="status">{status}</div>}
         </div>
       </main>
-      {joinPrompt && (
-        <div className="modal-backdrop">
-          <div className="modal">
-            <h2>Room does not exist. Create it?</h2>
-            <p>You can create the room now using the current settings.</p>
-            <div className="actions">
-              <button type="button" className="primary-button" onClick={handleCreate}>Create it</button>
-              <button type="button" className="secondary-button" onClick={() => setJoinPrompt(null)}>Cancel</button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -209,7 +204,8 @@ function UploadArea({ roomId, token, onUploaded }: { roomId: string; token: stri
 }
 
 function RoomPage() {
-  const { roomId = '' } = useParams();
+  const { roomId: rawRoomId = '' } = useParams();
+  const roomId = rawRoomId.trim();
   const navigate = useNavigate();
   const [token, setToken] = useState(() => getStoredToken(roomId));
   const [state, setState] = useState<{ presenceCount: number; isPrivate: boolean; files: FileAsset[] } | null>(null);
@@ -219,6 +215,16 @@ function RoomPage() {
   const [joinError, setJoinError] = useState('');
   const [remoteVersion, setRemoteVersion] = useState<number>(0);
   const [isRemoteUpdate, setIsRemoteUpdate] = useState(false);
+  const [autoJoinAttempted, setAutoJoinAttempted] = useState(false);
+  const [isRoomKeyRequired, setIsRoomKeyRequired] = useState(false);
+
+  const lastRoomIdRef = useRef(roomId);
+  const joinInitiatedRef = useRef(false);
+
+  if (lastRoomIdRef.current !== roomId) {
+    lastRoomIdRef.current = roomId;
+    joinInitiatedRef.current = false;
+  }
 
   const debouncedSave = useMemo(() => {
     return debounce((json: any, version: number) => {
@@ -248,6 +254,28 @@ function RoomPage() {
       socket?.emit('room:activity');
     }
   });
+
+  useEffect(() => {
+    if (token) return;
+    if (joinInitiatedRef.current) return;
+    joinInitiatedRef.current = true;
+
+    joinRoom({ roomId })
+      .then((response) => {
+        setStoredToken(response.roomId, response.accessToken);
+        setToken(response.accessToken);
+      })
+      .catch((error: any) => {
+        const errMsg = error.response?.data?.error || error.message || '';
+        if (errMsg.includes('key required') || errMsg.includes('Room key required')) {
+          setIsRoomKeyRequired(true);
+        } else {
+          setIsRoomKeyRequired(true);
+        }
+        setJoinError(errMsg);
+        setAutoJoinAttempted(true);
+      });
+  }, [roomId, token]);
 
   useEffect(() => {
     if (!token) {
@@ -323,34 +351,75 @@ function RoomPage() {
   }
 
   if (!token) {
-    return (
-      <div className="shell">
-        <main className="panel auth-panel">
-          <div className="eyebrow">Join required</div>
-          <h1>This room is locked.</h1>
-          <p>Enter the private room key or return to the home screen to join properly.</p>
-          <label className="field">
-            <span>Room key</span>
-            <input value={joinKey} onChange={(event) => setJoinKey(event.target.value)} placeholder="Paste key" />
-          </label>
-          {joinError && <div className="status error">{joinError}</div>}
-          <div className="actions">
-            <button
-              className="primary-button"
-              onClick={async () => {
-                const response = await joinRoom({ roomId, roomKey: joinKey });
-                setStoredToken(roomId, response.accessToken);
-                setToken(response.accessToken);
-                navigate(`/${roomId}`, { replace: true });
-              }}
-            >
-              Join Room
-            </button>
-            <button className="secondary-button" onClick={() => navigate('/')}>Back</button>
-          </div>
-        </main>
-      </div>
-    );
+    if (!autoJoinAttempted) {
+      return (
+        <div className="shell">
+          <main className="panel auth-panel">
+            <div className="eyebrow">Link Share</div>
+            <h1>Entering room...</h1>
+            <div className="status">{status}</div>
+          </main>
+        </div>
+      );
+    }
+
+    if (isRoomKeyRequired) {
+      return (
+        <div className="shell">
+          <main className="panel auth-panel">
+            <div className="eyebrow">Join required</div>
+            {joinError && joinError == "Room key required." && (
+              <div>
+                <h1>This room is locked.</h1>
+                <p>Enter the private room key or return to the home screen to join properly.</p>
+                <label className="field">
+                  <span>Room key</span>
+                  <input value={joinKey} onChange={(event) => setJoinKey(event.target.value)} placeholder="Paste key" />
+                </label>
+                <div className="actions">
+                  <button
+                    className="primary-button"
+                    onClick={async () => {
+                      try {
+                        const trimmedKey = joinKey.trim();
+                        if (!trimmedKey) {
+                          setJoinError('Room key is required.');
+                          return;
+                        }
+                        if (trimmedKey.length < 4 || trimmedKey.length > 256) {
+                          setJoinError('Private key must be between 4 and 256 characters long.');
+                          return;
+                        }
+                        const response = await joinRoom({ roomId, roomKey: trimmedKey });
+                        setStoredToken(roomId, response.accessToken);
+                        setToken(response.accessToken);
+                        navigate(`/${roomId}`, { replace: true });
+                      } catch (err: any) {
+                        setJoinError(err.response?.data?.error || err.message || 'Join failed');
+                      }
+                    }}
+                  >
+                    Join Room
+                  </button>
+                  <button className="secondary-button" onClick={() => navigate('/')}>Back</button>
+                </div>
+              </div>
+            )}
+            {joinError && joinError != "Room key required." &&
+              <>
+                <div>
+                  <h1>{joinError}</h1>
+                </div>
+                <div className="actions">
+                  <button className="secondary-button" onClick={() => navigate('/')}>Back</button>
+                </div>
+              </>
+            }
+
+          </main>
+        </div>
+      );
+    }
   }
 
   return (
@@ -377,27 +446,27 @@ function RoomPage() {
           <h2>Files</h2>
           <span>Synced in real time</span>
         </div>
-        <UploadArea roomId={roomId} token={token} onUploaded={(file) => setState((current) => current )} />
+        <UploadArea roomId={roomId} token={token} onUploaded={() => setState((current) => current)} />
         <div className="file-list">
           {state?.files.map((file) => (
             <button
-                key={file.id}
-                className="file-card"
-                onClick={async () => {
-                    try {
-                    const url = await getDownloadUrl(
-                        roomId,
-                        file.id,
-                        token
-                    );
+              key={file.id}
+              className="file-card"
+              onClick={async () => {
+                try {
+                  const url = await getDownloadUrl(
+                    roomId,
+                    file.id,
+                    token
+                  );
 
-                    window.open(url, '_blank');
-                    } catch {
-                    alert('Download failed');
-                    }
-                }}
-                >
-               <strong>{file.originalName}</strong>
+                  window.open(url, '_blank');
+                } catch {
+                  alert('Download failed');
+                }
+              }}
+            >
+              <strong>{file.originalName}</strong>
               <span>{Math.ceil(file.size / 1024)} KB · {file.mimeType}</span>
             </button>
           ))}
