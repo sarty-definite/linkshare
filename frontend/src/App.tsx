@@ -64,6 +64,11 @@ function HomePage() {
         roomKey: hasPrivateKey ? trimmedKey : undefined
       });
       setStoredToken(response.roomId, response.accessToken);
+      if (hasPrivateKey) {
+        window.localStorage.setItem(`link-share:key:${response.roomId}`, trimmedKey);
+      } else {
+        window.localStorage.removeItem(`link-share:key:${response.roomId}`);
+      }
       setStatus('Room created.');
       navigate(`/${response.roomId}`);
     } catch (error) {
@@ -94,6 +99,11 @@ function HomePage() {
         roomKey: hasPrivateKey ? trimmedKey : undefined
       });
       setStoredToken(response.roomId, response.accessToken);
+      if (hasPrivateKey) {
+        window.localStorage.setItem(`link-share:key:${response.roomId}`, trimmedKey);
+      } else {
+        window.localStorage.removeItem(`link-share:key:${response.roomId}`);
+      }
       navigate(`/${response.roomId}`);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Join failed';
@@ -207,6 +217,7 @@ function RoomPage() {
   const { roomId: rawRoomId = '' } = useParams();
   const roomId = rawRoomId.trim();
   const navigate = useNavigate();
+  const roomKey = window.localStorage.getItem(`link-share:key:${roomId}`) ?? '';
   const [token, setToken] = useState(() => getStoredToken(roomId));
   const [state, setState] = useState<{ presenceCount: number; isPrivate: boolean; files: FileAsset[] } | null>(null);
   const [socket, setSocket] = useState<Socket | null>(null);
@@ -263,6 +274,7 @@ function RoomPage() {
     joinRoom({ roomId })
       .then((response) => {
         setStoredToken(response.roomId, response.accessToken);
+        window.localStorage.removeItem(`link-share:key:${response.roomId}`);
         setToken(response.accessToken);
       })
       .catch((error: any) => {
@@ -392,6 +404,7 @@ function RoomPage() {
                         }
                         const response = await joinRoom({ roomId, roomKey: trimmedKey });
                         setStoredToken(roomId, response.accessToken);
+                        window.localStorage.setItem(`link-share:key:${roomId}`, trimmedKey);
                         setToken(response.accessToken);
                         navigate(`/${roomId}`, { replace: true });
                       } catch (err: any) {
@@ -425,13 +438,48 @@ function RoomPage() {
   return (
     <div className="shell room-shell">
       <header className="room-header panel">
-        <div>
-          <div className="eyebrow">Room</div>
-          <h1>{roomId}</h1>
-          <div className="subline">{status}</div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          <div>
+            <div className="eyebrow">Room</div>
+            <h1>{roomId}</h1>
+            <div className="subline">{status}</div>
+          </div>
+          <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
+            <button
+              type="button"
+              className="ghost-button"
+              style={{ display: 'inline-flex', alignItems: 'center', padding: '6px 12px', fontSize: '0.85rem', borderRadius: '8px' }}
+              onClick={() => {
+                void navigator.clipboard.writeText(window.location.href);
+                alert('Room link copied to clipboard!');
+              }}
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '6px' }}>
+                <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path>
+                <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>
+              </svg>
+              Copy Link
+            </button>
+            {state?.isPrivate && roomKey && (
+              <button
+                type="button"
+                className="ghost-button"
+                style={{ display: 'inline-flex', alignItems: 'center', padding: '6px 12px', fontSize: '0.85rem', borderRadius: '8px' }}
+                onClick={() => {
+                  void navigator.clipboard.writeText(roomKey);
+                  alert('Private key copied to clipboard!');
+                }}
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '6px' }}>
+                  <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.778-7.778zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"></path>
+                </svg>
+                Copy Private Key
+              </button>
+            )}
+          </div>
         </div>
         <div className="room-stats">
-          <div><strong>{state?.presenceCount ?? 0}</strong><span>active users</span></div>
+          <div><strong>{state?.presenceCount ?? 0}</strong><span>active sessions</span></div>
           <div><strong>{state?.files.length ?? 0}</strong><span>files</span></div>
         </div>
       </header>
