@@ -148,16 +148,36 @@ function Toolbar({ editor }: { editor: ReturnType<typeof useEditor> }) {
   if (!editor) return null;
   return (
     <div className="toolbar">
-      <button onClick={() => editor.chain().focus().toggleBold().run()} className={editor.isActive('bold') ? 'active' : ''}>Bold</button>
-      <button onClick={() => editor.chain().focus().toggleItalic().run()} className={editor.isActive('italic') ? 'active' : ''}>Italic</button>
-      <button onClick={() => editor.chain().focus().toggleUnderline().run()} className={editor.isActive('underline') ? 'active' : ''}>Underline</button>
-      <button onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()} className={editor.isActive('heading', { level: 1 }) ? 'active' : ''}>H1</button>
-      <button onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()} className={editor.isActive('heading', { level: 2 }) ? 'active' : ''}>H2</button>
-      <button onClick={() => editor.chain().focus().toggleBulletList().run()} className={editor.isActive('bulletList') ? 'active' : ''}>Bullets</button>
-      <button onClick={() => editor.chain().focus().toggleOrderedList().run()} className={editor.isActive('orderedList') ? 'active' : ''}>Numbered</button>
-      <button onClick={() => editor.chain().focus().insertTable({ rows: 2, cols: 2, withHeaderRow: true }).run()}>Table</button>
-      <button onClick={() => editor.chain().focus().setHardBreak().run()}>Line break</button>
-      <button onClick={() => editor.chain().focus().setLink({ href: window.prompt('Enter link URL') ?? '' }).run()}>Link</button>
+      <button onClick={() => editor.chain().focus().toggleBold().run()} className={editor.isActive('bold') ? 'active' : ''} title="Bold">
+        <strong>B</strong>
+      </button>
+      <button onClick={() => editor.chain().focus().toggleItalic().run()} className={editor.isActive('italic') ? 'active' : ''} title="Italic">
+        <em>I</em>
+      </button>
+      <button onClick={() => editor.chain().focus().toggleUnderline().run()} className={editor.isActive('underline') ? 'active' : ''} title="Underline">
+        <u>U</u>
+      </button>
+      <button onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()} className={editor.isActive('heading', { level: 1 }) ? 'active' : ''} title="Heading 1">
+        H₁
+      </button>
+      <button onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()} className={editor.isActive('heading', { level: 2 }) ? 'active' : ''} title="Heading 2">
+        H₂
+      </button>
+      <button onClick={() => editor.chain().focus().toggleBulletList().run()} className={editor.isActive('bulletList') ? 'active' : ''} title="Bullet List">
+        •
+      </button>
+      <button onClick={() => editor.chain().focus().toggleOrderedList().run()} className={editor.isActive('orderedList') ? 'active' : ''} title="Numbered List">
+        1.
+      </button>
+      <button onClick={() => editor.chain().focus().insertTable({ rows: 2, cols: 2, withHeaderRow: true }).run()} title="Insert Table">
+        田
+      </button>
+      <button onClick={() => editor.chain().focus().setHardBreak().run()} title="Line Break">
+        ↵
+      </button>
+      <button onClick={() => editor.chain().focus().setLink({ href: window.prompt('Enter link URL') ?? '' }).run()} title="Insert Link">
+        🔗
+      </button>
     </div>
   );
 }
@@ -228,6 +248,7 @@ function RoomPage() {
   const [isRemoteUpdate, setIsRemoteUpdate] = useState(false);
   const [autoJoinAttempted, setAutoJoinAttempted] = useState(false);
   const [isRoomKeyRequired, setIsRoomKeyRequired] = useState(false);
+  const [activeTab, setActiveTab] = useState<'text' | 'files'>('text');
 
   const lastRoomIdRef = useRef(roomId);
   const joinInitiatedRef = useRef(false);
@@ -438,23 +459,22 @@ function RoomPage() {
   return (
     <div className="shell room-shell">
       <header className="room-header panel">
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-          <div>
-            <div className="eyebrow">Room</div>
+        <div className="room-header-left">
+          <div className="room-title-area">
+            <span className="eyebrow">Room</span>
             <h1>{roomId}</h1>
-            <div className="subline">{status}</div>
+            <span className="subline">({status})</span>
           </div>
-          <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
+          <div className="room-action-buttons">
             <button
               type="button"
               className="ghost-button"
-              style={{ display: 'inline-flex', alignItems: 'center', padding: '6px 12px', fontSize: '0.85rem', borderRadius: '8px' }}
               onClick={() => {
                 void navigator.clipboard.writeText(window.location.href);
                 alert('Room link copied to clipboard!');
               }}
             >
-              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '6px' }}>
+              <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '4px' }}>
                 <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path>
                 <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>
               </svg>
@@ -464,62 +484,86 @@ function RoomPage() {
               <button
                 type="button"
                 className="ghost-button"
-                style={{ display: 'inline-flex', alignItems: 'center', padding: '6px 12px', fontSize: '0.85rem', borderRadius: '8px' }}
                 onClick={() => {
                   void navigator.clipboard.writeText(roomKey);
                   alert('Private key copied to clipboard!');
                 }}
               >
-                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '6px' }}>
+                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '4px' }}>
                   <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.778-7.778zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"></path>
                 </svg>
-                Copy Private Key
+                Copy Key
               </button>
             )}
           </div>
         </div>
         <div className="room-stats">
-          <div><strong>{state?.presenceCount ?? 0}</strong><span>active sessions</span></div>
-          <div><strong>{state?.files.length ?? 0}</strong><span>files</span></div>
+          <div>
+            <span>users</span>
+            <strong>{state?.presenceCount ?? 0}</strong>
+          </div>
+          <div>
+            <span>files</span>
+            <strong>{state?.files.length ?? 0}</strong>
+          </div>
         </div>
       </header>
 
-      <section className="panel editor-panel">
-        <Toolbar editor={editor} />
-        <EditorContent editor={editor} className="editor-surface" />
-      </section>
+      <div className="mobile-tab-toggle">
+        <button
+          type="button"
+          className={activeTab === 'text' ? 'active' : ''}
+          onClick={() => setActiveTab('text')}
+        >
+          Text Editor
+        </button>
+        <button
+          type="button"
+          className={activeTab === 'files' ? 'active' : ''}
+          onClick={() => setActiveTab('files')}
+        >
+          Files ({state?.files.length ?? 0})
+        </button>
+      </div>
 
-      <section className="panel files-panel">
-        <div className="section-head">
-          <h2>Files</h2>
-          <span>Synced in real time</span>
-        </div>
-        <UploadArea roomId={roomId} token={token} onUploaded={() => setState((current) => current)} />
-        <div className="file-list">
-          {state?.files.map((file) => (
-            <button
-              key={file.id}
-              className="file-card"
-              onClick={async () => {
-                try {
-                  const url = await getDownloadUrl(
-                    roomId,
-                    file.id,
-                    token
-                  );
+      <div className="room-main-layout">
+        <section className={`panel editor-panel ${activeTab === 'text' ? 'tab-visible' : 'tab-hidden'}`} style={{ display: 'flex', flexDirection: 'column' }}>
+          <Toolbar editor={editor} />
+          <EditorContent editor={editor} className="editor-surface" style={{ flex: 1, minHeight: '380px' }} />
+        </section>
 
-                  window.open(url, '_blank');
-                } catch {
-                  alert('Download failed');
-                }
-              }}
-            >
-              <strong>{file.originalName}</strong>
-              <span>{Math.ceil(file.size / 1024)} KB · {file.mimeType}</span>
-            </button>
-          ))}
-        </div>
-      </section>
+        <section className={`panel files-panel ${activeTab === 'files' ? 'tab-visible' : 'tab-hidden'}`}>
+          <div className="section-head">
+            <h2>Files</h2>
+            <span>Synced in real time</span>
+          </div>
+          <UploadArea roomId={roomId} token={token} onUploaded={() => setState((current) => current)} />
+          <div className="file-list">
+            {state?.files.map((file) => (
+              <button
+                key={file.id}
+                className="file-card"
+                title="Download"
+                onClick={async () => {
+                  try {
+                    const url = await getDownloadUrl(roomId, file.id, token);
+                    window.open(url, '_blank');
+                  } catch {
+                    alert('Download failed');
+                  }
+                }}
+              >
+                <strong>{file.originalName}</strong>
+                <span>
+                  {file.size > 1024 * 1024
+                    ? `${(file.size / (1024 * 1024)).toFixed(2)} MB`
+                    : `${Math.ceil(file.size / 1024)} KB`}
+                </span>
+              </button>
+            ))}
+          </div>
+        </section>
+      </div>
     </div>
   );
 }

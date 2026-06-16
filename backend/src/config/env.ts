@@ -14,6 +14,7 @@ const envSchema = z.object({
   UPLOAD_TMP_DIR: z.string().default(path.join(process.cwd(), 'uploads', 'tmp')),
   ROOM_CLEANUP_MINUTES: z.coerce.number().int().positive().default(30),
   FILE_UPLOAD_MAX_BYTES: z.coerce.number().int().positive().default(250 * 1024 * 1024),
+  ROOM_MAX_SESSIONS: z.coerce.number().int().positive().default(10),
   S3_BUCKET: z.string().optional(),
   S3_REGION: z.string().optional(),
   S3_ACCESS_KEY_ID: z.string().optional(),

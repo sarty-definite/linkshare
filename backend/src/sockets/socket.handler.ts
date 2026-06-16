@@ -4,6 +4,7 @@ import { RoomService } from '../services/room.service.js';
 import { RoomRepository } from '../repositories/room.repository.js';
 import { CleanupService } from '../services/cleanup.service.js';
 import { contentUpdateSchema } from '../models/schemas.js';
+import { env } from '../config/env.js';
 
 export function initializeSockets(io: SocketIOServer) {
   io.use(async (socket, next) => {
@@ -30,9 +31,15 @@ export function initializeSockets(io: SocketIOServer) {
 
   io.on('connection', async (socket) => {
     const roomId = socket.data['roomId'] as string;
-    await socket.join(roomId);
-    
     const activeSet = RoomService.ensureActiveSet(roomId);
+
+    if (activeSet.size >= env.ROOM_MAX_SESSIONS) {
+      socket.emit('room:error', { message: 'Maximum sessions limit reached for this room.' });
+      socket.disconnect(true);
+      return;
+    }
+
+    await socket.join(roomId);
     activeSet.add(socket.id);
 
     const room = await RoomRepository.findById(roomId);
