@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
-import { env } from './config.js';
+import { env } from './env.js';
 import type { Readable } from 'node:stream';
 
 export type StoredObject = {
@@ -11,7 +11,7 @@ export type StoredObject = {
 
 type ObjectStream = Readable;
 
-interface StorageAdapter {
+export interface StorageAdapter {
   saveFile(sourcePath: string, object: StoredObject): Promise<void>;
   deleteFile(key: string): Promise<void>;
   createReadStream(key: string): Promise<ObjectStream>;
