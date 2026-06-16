@@ -27,6 +27,18 @@ function setStoredToken(roomId: string, token: string) {
   window.localStorage.setItem(`link-share:token:${roomId}`, token);
 }
 
+function debounce<T extends (...args: any[]) => void>(func: T, delay: number): (...args: Parameters<T>) => void {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  return (...args: Parameters<T>) => {
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
+    timeoutId = setTimeout(() => {
+      func(...args);
+    }, delay);
+  };
+}
+
 function HomePage() {
   const navigate = useNavigate();
   const [roomId, setRoomId] = useState('');
@@ -208,6 +220,15 @@ function RoomPage() {
   const [remoteVersion, setRemoteVersion] = useState<number>(0);
   const [isRemoteUpdate, setIsRemoteUpdate] = useState(false);
 
+  const debouncedSave = useMemo(() => {
+    return debounce((json: any, version: number) => {
+      void saveRoomContent(roomId, token, json, version)
+        .then((response) => setRemoteVersion(response.documentVersion))
+        .catch(() => undefined);
+      socket?.emit('room:content:update', { documentJson: json, clientVersion: version });
+    }, 1000);
+  }, [roomId, token, socket]);
+
   const editor = useEditor({
     extensions: [
       StarterKit,
@@ -223,9 +244,8 @@ function RoomPage() {
     onUpdate({ editor }) {
       if (isRemoteUpdate) return;
       const json = editor.getJSON();
-      void saveRoomContent(roomId, token, json, remoteVersion).then((response) => setRemoteVersion(response.documentVersion)).catch(() => undefined);
+      debouncedSave(json, remoteVersion);
       socket?.emit('room:activity');
-      socket?.emit('room:content:update', { documentJson: json, clientVersion: remoteVersion });
     }
   });
 
