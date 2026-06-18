@@ -1,4 +1,4 @@
-# Link Share
+# We Ping
 
 A production-oriented real-time collaborative room app with a Vite + React frontend and an Express + Socket.IO backend.
 

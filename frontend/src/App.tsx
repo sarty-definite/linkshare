@@ -115,7 +115,7 @@ function HomePage() {
     <div className="shell home-shell">
       <div className="backdrop" />
       <main className="panel hero-panel">
-        <div className="eyebrow">Link Share</div>
+        <div className="eyebrow">We Ping</div>
         <h1>Real-time rooms for text and files.</h1>
         <p className="lede">
           Create a room, invite others with a room ID, and keep everything in sync across devices with encrypted transport and persistent storage.
@@ -392,7 +392,7 @@ function RoomPage() {
       return (
         <div className="shell">
           <main className="panel auth-panel">
-            <div className="eyebrow">Link Share</div>
+            <div className="eyebrow">We Ping</div>
             <h1>Entering room...</h1>
             <div className="status">{status}</div>
           </main>

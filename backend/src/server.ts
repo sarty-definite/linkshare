@@ -41,6 +41,6 @@ CleanupService.startCleanupInterval();
 
 server.listen(env.PORT, () => {
   void CleanupService.runRoomCleanup().catch(() => undefined);
-  console.log(`Link Share backend running on port ${env.PORT}`);
+  console.log(`We Ping backend running on port ${env.PORT}`);
 });
 export { app, server };
