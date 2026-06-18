@@ -12,3 +12,5 @@ backend/.turbo
 coverage
 package-lock.json
 yarn.lock
+docker-compose.yml
+cloudflared.deb
