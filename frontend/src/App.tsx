@@ -187,22 +187,26 @@ function UploadArea({ roomId, token, onUploaded }: { roomId: string; token: stri
   const [message, setMessage] = useState('');
 
   async function uploadFile(file: File) {
-    const init = await createUploadSession(roomId, token, { fileName: file.name, mimeType: file.type || 'application/octet-stream', fileSize: file.size });
-    const chunkSize = init.chunkSize;
-    const status = await getUploadStatus(roomId, token, init.uploadId).catch(() => ({ receivedChunks: 0 }));
-    const startChunk = status.receivedChunks ?? 0;
-    const totalChunks = Math.ceil(file.size / chunkSize);
+    try {
+      const init = await createUploadSession(roomId, token, { fileName: file.name, mimeType: file.type || 'application/octet-stream', fileSize: file.size });
+      const chunkSize = init.chunkSize;
+      const status = await getUploadStatus(roomId, token, init.uploadId).catch(() => ({ receivedChunks: 0 }));
+      const startChunk = status.receivedChunks ?? 0;
+      const totalChunks = Math.ceil(file.size / chunkSize);
 
-    for (let chunkIndex = startChunk; chunkIndex < totalChunks; chunkIndex += 1) {
-      const start = chunkIndex * chunkSize;
-      const chunk = file.slice(start, Math.min(file.size, start + chunkSize));
-      await uploadChunk(roomId, token, init.uploadId, chunkIndex, chunk);
-      setMessage(`Uploading ${file.name}: ${Math.round(((chunkIndex + 1) / totalChunks) * 100)}%`);
+      for (let chunkIndex = startChunk; chunkIndex < totalChunks; chunkIndex += 1) {
+        const start = chunkIndex * chunkSize;
+        const chunk = file.slice(start, Math.min(file.size, start + chunkSize));
+        await uploadChunk(roomId, token, init.uploadId, chunkIndex, chunk);
+        setMessage(`Uploading ${file.name}: ${Math.round(((chunkIndex + 1) / totalChunks) * 100)}%`);
+      }
+
+      const uploaded = await finalizeUpload(roomId, token, init.uploadId);
+      onUploaded(uploaded as FileAsset);
+      setMessage(`Uploaded ${file.name}`);
+    } catch (error: any) {
+      setMessage(error.response?.data?.error || error.message || 'Upload failed');
     }
-
-    const uploaded = await finalizeUpload(roomId, token, init.uploadId);
-    onUploaded(uploaded as FileAsset);
-    setMessage(`Uploaded ${file.name}`);
   }
 
   return (

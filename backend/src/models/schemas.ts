@@ -23,6 +23,8 @@ export const contentUpdateSchema = z.object({
 export const uploadCreateSchema = z.object({
   fileName: z.string().min(1).max(255),
   mimeType: z.string().min(1).max(255),
-  fileSize: z.number().int().positive().max(env.FILE_UPLOAD_MAX_BYTES),
+  fileSize: z.number().int().positive().max(env.FILE_UPLOAD_MAX_BYTES, {
+    message: `File exceeds the maximum limit of ${Math.round(env.FILE_UPLOAD_MAX_BYTES / (1024 * 1024))} MB`
+  }),
   chunkSize: z.number().int().positive().max(10 * 1024 * 1024).default(5 * 1024 * 1024)
 });

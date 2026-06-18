@@ -15,7 +15,7 @@ export function errorHandler(error: unknown, _req: Request, res: Response, _next
     message.includes('authorization') || message.includes('token') ? 401 :
     message.includes('Room does not exist') ? 404 :
     message.includes('Invalid room key') ? 403 :
-    message.includes('required') ? 400 :
+    message.includes('limit') || message.includes('exceeded') || message.includes('required') ? 400 :
     500;
   res.status(status).json({ error: message });
 }

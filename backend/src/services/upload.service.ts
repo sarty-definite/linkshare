@@ -10,6 +10,12 @@ import { sanitizeUploadName, buildStorageKey } from '../utils/path.util.js';
 
 export class UploadService {
   static async createSession(roomId: string, fileName: string, mimeType: string, fileSize: number, chunkSize: number) {
+    // Validate that the total file size in the room does not exceed the allowed limit
+    const currentTotalSize = await FileRepository.sumSizeByRoomId(roomId);
+    if (currentTotalSize + fileSize > env.ROOM_UPLOAD_MAX_BYTES) {
+      throw new Error('Room upload limit exceeded');
+    }
+
     const safeName = sanitizeUploadName(fileName);
     const uploadId = crypto.randomUUID();
     const tmpDir = path.join(env.UPLOAD_TMP_DIR, roomId, uploadId);
@@ -72,6 +78,10 @@ export class UploadService {
       throw new Error('Upload session expired');
     }
 
+    if (body.length > session.chunkSize) {
+      throw new Error('Chunk size exceeds session limit');
+    }
+
     await fs.promises.mkdir(session.tmpDir, { recursive: true });
     const chunkPath = path.join(session.tmpDir, `${chunkIndex}.part`);
     await fs.promises.writeFile(chunkPath, body);
@@ -132,6 +142,12 @@ export class UploadService {
       writeStream.on('error', reject);
       appendNext();
     });
+
+    const stats = await fs.promises.stat(assembledPath);
+    if (stats.size !== session.fileSize) {
+      await fs.promises.rm(session.tmpDir, { recursive: true, force: true }).catch(() => undefined);
+      throw new Error('Assembled file size does not match session file size');
+    }
 
     const fileId = crypto.randomUUID();
     const storageKey = buildStorageKey(roomId, fileId, session.safeName);

@@ -20,4 +20,17 @@ export class FileRepository {
       data
     });
   }
+
+  /**
+   * Computes the total size in bytes of all uploaded files in a given room.
+   */
+  static async sumSizeByRoomId(roomId: string): Promise<number> {
+    const result = await prisma.fileAsset.aggregate({
+      where: { roomId },
+      _sum: {
+        size: true
+      }
+    });
+    return result._sum.size ?? 0;
+  }
 }
