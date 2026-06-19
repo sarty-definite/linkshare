@@ -52,6 +52,10 @@ a {
   overflow: hidden;
 }
 
+.home-shell {
+  place-items: center;
+}
+
 .backdrop {
   position: absolute;
   inset: 0;
