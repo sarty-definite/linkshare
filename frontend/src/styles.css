@@ -592,6 +592,10 @@ h1 {
   padding-right: 110px !important;
 }
 
+.input-with-button input.room-id-input {
+  padding-right: 125px !important;
+}
+
 .input-with-button .inline-button {
   position: absolute;
   right: 8px;
@@ -607,4 +611,22 @@ h1 {
 
 .input-with-button .inline-button:hover {
   background: var(--accent);
+}
+
+.input-with-button .instant-inline-button {
+  position: absolute;
+  right: 8px;
+  border: 0;
+  border-radius: 10px;
+  padding: 8px 14px;
+  background: linear-gradient(135deg, var(--accent-2), #eab308);
+  color: #ffffff;
+  font-weight: 700;
+  cursor: pointer;
+  transition: opacity 140ms ease, transform 140ms ease;
+}
+
+.input-with-button .instant-inline-button:hover {
+  opacity: 0.9;
+  transform: translateY(-1px);
 }

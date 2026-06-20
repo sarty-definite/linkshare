@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Navigate, Route, Routes, useNavigate, useParams } from 'react-router-dom';
 import { createRoom, createUploadSession, fetchRoomState, finalizeUpload, getDownloadUrl, getUploadStatus, joinRoom, roomExists, saveRoomContent, uploadChunk, cancelUpload, deleteFile, type FileAsset } from './lib/api';
+import { generateInstantRoomId } from './lib/room-generator';
 import { createRoomSocket } from './lib/socket';
 import { EditorContent, useEditor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
@@ -80,6 +81,25 @@ function HomePage() {
     }
   }
 
+  async function handleInstantCreate() {
+    try {
+      setStatus('Generating unique room ID...');
+      const generatedId = await generateInstantRoomId();
+      setStatus('Creating room...');
+      const response = await createRoom({
+        roomId: generatedId,
+        privateRoom: false
+      });
+      setStoredToken(response.roomId, response.accessToken);
+      window.localStorage.removeItem(`link-share:key:${response.roomId}`);
+      setStatus('Room created.');
+      navigate(`/${response.roomId}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Instant creation failed';
+      setStatus(message);
+    }
+  }
+
   async function handleJoin() {
     try {
       const normalizedRoomId = roomId.trim();
@@ -127,7 +147,23 @@ function HomePage() {
         <div className="form-grid">
           <label className="field">
             <span>Room ID</span>
-            <input value={roomId} onChange={(event) => setRoomId(event.target.value)} placeholder="project-alpha" autoComplete="off" />
+            <div className="input-with-button">
+              <input
+                className="room-id-input"
+                value={roomId}
+                onChange={(event) => setRoomId(event.target.value)}
+                placeholder="project-alpha"
+                autoComplete="off"
+              />
+              <button
+                type="button"
+                className="instant-inline-button"
+                onClick={handleInstantCreate}
+                title="Instant Create Room"
+              >
+                ⚡ Instant
+              </button>
+            </div>
           </label>
           <label className="field">
             <span>Private Key</span>

@@ -1,1 +1,1 @@
-{"root":["./src/App.tsx","./src/global.d.ts","./src/main.tsx","./src/vite-env.d.ts","./src/config/editor-formatting.tsx","./src/lib/api.ts","./src/lib/socket.ts"],"version":"5.9.3"}
+{"root":["./src/App.tsx","./src/global.d.ts","./src/main.tsx","./src/vite-env.d.ts","./src/config/editor-formatting.tsx","./src/config/word-lists.ts","./src/lib/api.ts","./src/lib/room-generator.ts","./src/lib/socket.ts"],"version":"5.9.3"}
