@@ -7,7 +7,7 @@ import { UploadRepository } from '../repositories/upload.repository.js';
 import { FileRepository } from '../repositories/file.repository.js';
 import { RoomService } from './room.service.js';
 import { sanitizeUploadName, buildStorageKey } from '../utils/path.util.js';
-import { CreateMultipartUploadCommand, UploadPartCommand, CompleteMultipartUploadCommand } from '@aws-sdk/client-s3';
+import { CreateMultipartUploadCommand, UploadPartCommand, CompleteMultipartUploadCommand, AbortMultipartUploadCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
 export class UploadService {
@@ -274,5 +274,51 @@ export class UploadService {
     await RoomService.touchRoom(roomId);
 
     return file;
+  }
+
+  static async cancelUpload(roomId: string, uploadId: string) {
+    const session = await UploadRepository.findById(uploadId);
+    if (!session || session.roomId !== roomId) {
+      throw new Error('Upload session not found');
+    }
+
+    if (env.STORAGE_PROVIDER === 's3' || env.STORAGE_PROVIDER === 'r2') {
+      if (session.s3UploadId && session.s3Key) {
+        const { client, bucket } = getActiveS3Client();
+        if (client && bucket) {
+          await client.send(
+            new AbortMultipartUploadCommand({
+              Bucket: bucket,
+              Key: session.s3Key,
+              UploadId: session.s3UploadId
+            })
+          ).catch((err) => {
+            console.error('Failed to abort S3/R2 multipart upload:', err);
+          });
+        }
+      }
+    } else {
+      // Local storage: remove temp chunks directory
+      await fs.promises.rm(session.tmpDir, { recursive: true, force: true }).catch(() => undefined);
+    }
+
+    await UploadRepository.delete(session.id);
+    await RoomService.touchRoom(roomId);
+  }
+
+  static async deleteFile(roomId: string, fileId: string) {
+    const file = await FileRepository.findById(fileId);
+    if (!file || file.roomId !== roomId) {
+      throw new Error('File not found');
+    }
+
+    // Delete from storage adapter
+    await storage.deleteFile(file.storageKey).catch((err) => {
+      console.error('Failed to delete file from storage adapter:', err);
+    });
+
+    // Delete from database
+    await FileRepository.delete(fileId);
+    await RoomService.touchRoom(roomId);
   }
 }

@@ -75,4 +75,37 @@ export class UploadController {
       next(error);
     }
   }
+
+  static async cancel(req: Request, res: Response, next: NextFunction) {
+    try {
+      const roomId = normalizeRoomId(String(req.params['roomId'] || ''));
+      const room = await requireRoomAuth(req, roomId);
+      const uploadId = String(req.params.uploadId || '');
+
+      await UploadService.cancelUpload(room.id, uploadId);
+
+      res.json({ ok: true });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  static async deleteFile(req: Request, res: Response, next: NextFunction) {
+    try {
+      const roomId = normalizeRoomId(String(req.params['roomId'] || ''));
+      const room = await requireRoomAuth(req, roomId);
+      const fileId = String(req.params.fileId || '');
+
+      await UploadService.deleteFile(room.id, fileId);
+
+      const io = req.app.get('io') as SocketIOServer | undefined;
+      if (io) {
+        io.to(room.id).emit('room:file:deleted', { fileId });
+      }
+
+      res.json({ ok: true });
+    } catch (error) {
+      next(error);
+    }
+  }
 }

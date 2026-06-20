@@ -16,5 +16,7 @@ router.put(
   UploadController.uploadChunk
 );
 router.post('/:roomId/uploads/:uploadId/finalize', uploadLimiter, UploadController.finalize);
+router.delete('/:roomId/uploads/:uploadId', UploadController.cancel);
+router.delete('/:roomId/files/:fileId', UploadController.deleteFile);
 
 export default router;

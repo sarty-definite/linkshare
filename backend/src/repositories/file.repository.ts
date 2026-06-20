@@ -45,4 +45,10 @@ export class FileRepository {
     });
     return result._sum.size ?? 0;
   }
+
+  static async delete(id: string) {
+    return prisma.fileAsset.delete({
+      where: { id }
+    });
+  }
 }

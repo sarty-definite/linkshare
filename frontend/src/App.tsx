@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Navigate, Route, Routes, useNavigate, useParams } from 'react-router-dom';
-import { createRoom, createUploadSession, fetchRoomState, finalizeUpload, getDownloadUrl, getUploadStatus, joinRoom, roomExists, saveRoomContent, uploadChunk, type FileAsset } from './lib/api';
+import { createRoom, createUploadSession, fetchRoomState, finalizeUpload, getDownloadUrl, getUploadStatus, joinRoom, roomExists, saveRoomContent, uploadChunk, cancelUpload, deleteFile, type FileAsset } from './lib/api';
 import { createRoomSocket } from './lib/socket';
 import { EditorContent, useEditor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
@@ -147,40 +147,22 @@ function HomePage() {
   );
 }
 
-function Toolbar({ editor }: { editor: ReturnType<typeof useEditor> }) {
+import { formattingActions } from './config/editor-formatting';
+
+function Toolbar({ editor }: { editor: any }) {
   if (!editor) return null;
   return (
     <div className="toolbar">
-      <button onClick={() => editor.chain().focus().toggleBold().run()} className={editor.isActive('bold') ? 'active' : ''} title="Bold">
-        <strong>B</strong>
-      </button>
-      <button onClick={() => editor.chain().focus().toggleItalic().run()} className={editor.isActive('italic') ? 'active' : ''} title="Italic">
-        <em>I</em>
-      </button>
-      <button onClick={() => editor.chain().focus().toggleUnderline().run()} className={editor.isActive('underline') ? 'active' : ''} title="Underline">
-        <u>U</u>
-      </button>
-      <button onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()} className={editor.isActive('heading', { level: 1 }) ? 'active' : ''} title="Heading 1">
-        H₁
-      </button>
-      <button onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()} className={editor.isActive('heading', { level: 2 }) ? 'active' : ''} title="Heading 2">
-        H₂
-      </button>
-      <button onClick={() => editor.chain().focus().toggleBulletList().run()} className={editor.isActive('bulletList') ? 'active' : ''} title="Bullet List">
-        •
-      </button>
-      <button onClick={() => editor.chain().focus().toggleOrderedList().run()} className={editor.isActive('orderedList') ? 'active' : ''} title="Numbered List">
-        1.
-      </button>
-      <button onClick={() => editor.chain().focus().insertTable({ rows: 2, cols: 2, withHeaderRow: true }).run()} title="Insert Table">
-        田
-      </button>
-      <button onClick={() => editor.chain().focus().setHardBreak().run()} title="Line Break">
-        ↵
-      </button>
-      <button onClick={() => editor.chain().focus().setLink({ href: window.prompt('Enter link URL') ?? '' }).run()} title="Insert Link">
-        🔗
-      </button>
+      {formattingActions.map((item) => (
+        <button
+          key={item.title}
+          onClick={() => item.action(editor)}
+          className={item.isActive(editor) ? 'active' : ''}
+          title={item.title}
+        >
+          {item.label}
+        </button>
+      ))}
     </div>
   );
 }
@@ -188,8 +170,39 @@ function Toolbar({ editor }: { editor: ReturnType<typeof useEditor> }) {
 function UploadArea({ roomId, token, onUploaded }: { roomId: string; token: string; onUploaded: (file: FileAsset) => void }) {
   const [dragActive, setDragActive] = useState(false);
   const [message, setMessage] = useState('');
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadId, setUploadId] = useState<string | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  async function cancelCurrentUpload() {
+    if (!uploadId) return;
+    try {
+      setMessage('Cancelling upload...');
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+      await cancelUpload(roomId, token, uploadId);
+      setMessage('Upload cancelled.');
+    } catch (err: any) {
+      setMessage(`Cancellation failed: ${err.message}`);
+    } finally {
+      setIsUploading(false);
+      setUploadId(null);
+      abortControllerRef.current = null;
+    }
+  }
 
   async function uploadFile(file: File) {
+    if (isUploading) {
+      alert('An upload is already in progress. Please wait until it completes or cancel it.');
+      return;
+    }
+
+    setIsUploading(true);
+    setMessage(`Starting upload for ${file.name}...`);
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     try {
       // Dynamically determine chunk size based on file size and previous upload speed
       let chosenChunkSize = 5 * 1024 * 1024; // Default 5 MB
@@ -221,6 +234,8 @@ function UploadArea({ roomId, token, onUploaded }: { roomId: string; token: stri
         fileSize: file.size,
         chunkSize: chosenChunkSize
       });
+      
+      setUploadId(init.uploadId);
       const chunkSize = init.chunkSize;
       const totalChunks = Math.ceil(file.size / chunkSize);
 
@@ -237,7 +252,8 @@ function UploadArea({ roomId, token, onUploaded }: { roomId: string; token: stri
           const response = await axios.put(init.presignedUrls[chunkIndex]!, chunk, {
             headers: {
               'Content-Type': file.type || 'application/octet-stream'
-            }
+            },
+            signal: controller.signal
           });
           
           const etag = response.headers.etag;
@@ -250,7 +266,7 @@ function UploadArea({ roomId, token, onUploaded }: { roomId: string; token: stri
             ETag: etag
           });
           
-          setMessage(`Uploading directly ${file.name}: ${Math.round(((chunkIndex + 1) / totalChunks) * 100)}%`);
+          setMessage(`Uploading ${file.name}: ${Math.round(((chunkIndex + 1) / totalChunks) * 100)}%`);
         }
         
         uploaded = await finalizeUpload(roomId, token, init.uploadId, parts);
@@ -262,7 +278,7 @@ function UploadArea({ roomId, token, onUploaded }: { roomId: string; token: stri
         for (let chunkIndex = startChunk; chunkIndex < totalChunks; chunkIndex += 1) {
           const start = chunkIndex * chunkSize;
           const chunk = file.slice(start, Math.min(file.size, start + chunkSize));
-          await uploadChunk(roomId, token, init.uploadId, chunkIndex, chunk);
+          await uploadChunk(roomId, token, init.uploadId, chunkIndex, chunk, controller.signal);
           setMessage(`Uploading ${file.name}: ${Math.round(((chunkIndex + 1) / totalChunks) * 100)}%`);
         }
 
@@ -278,35 +294,72 @@ function UploadArea({ roomId, token, onUploaded }: { roomId: string; token: stri
 
       onUploaded(uploaded as FileAsset);
       setMessage(`Uploaded ${file.name}`);
+      setIsUploading(false);
+      setUploadId(null);
+      abortControllerRef.current = null;
     } catch (error: any) {
+      if (axios.isCancel(error) || error.name === 'CanceledError' || error.message === 'canceled') {
+        // Already handled in cancelCurrentUpload
+        return;
+      }
       setMessage(error.response?.data?.error || error.message || 'Upload failed');
+      setIsUploading(false);
+      setUploadId(null);
+      abortControllerRef.current = null;
     }
   }
 
   return (
     <section
-      className={dragActive ? 'upload-area active' : 'upload-area'}
+      className={`${dragActive ? 'upload-area active' : 'upload-area'} ${isUploading ? 'uploading' : ''}`}
       onDragOver={(event) => {
         event.preventDefault();
-        setDragActive(true);
+        if (!isUploading) setDragActive(true);
       }}
       onDragLeave={() => setDragActive(false)}
       onDrop={(event) => {
         event.preventDefault();
         setDragActive(false);
+        if (isUploading) return;
         const file = event.dataTransfer.files?.[0];
         if (file) void uploadFile(file);
       }}
     >
       <input
         type="file"
+        disabled={isUploading}
         onChange={(event) => {
           const file = event.target.files?.[0];
           if (file) void uploadFile(file);
         }}
       />
-      <strong>Drag files here or pick one</strong>
+      <strong>{isUploading ? 'Uploading file...' : 'Drag files here or pick one'}</strong>
       <span>{message || 'Large files are uploaded in chunks and can resume from the last confirmed chunk.'}</span>
+      {isUploading && (
+        <button
+          type="button"
+          className="cancel-button"
+          onClick={(e) => {
+            e.stopPropagation();
+            e.preventDefault();
+            void cancelCurrentUpload();
+          }}
+          style={{
+            zIndex: 10,
+            marginTop: '12px',
+            backgroundColor: 'var(--danger)',
+            color: '#fff',
+            border: 'none',
+            padding: '6px 12px',
+            borderRadius: '4px',
+            cursor: 'pointer',
+            fontSize: '13px',
+            fontWeight: '600'
+          }}
+        >
+          Cancel Upload
+        </button>
+      )}
     </section>
   );
 }
@@ -462,6 +515,15 @@ function RoomPage() {
     });
     connection.on('room:file:created', (file: FileAsset) => {
       setState((current) => (current ? { ...current, files: [file, ...current.files] } : current));
+    });
+    connection.on('room:file:deleted', (payload: { fileId: string }) => {
+      setState((current) => {
+        if (!current) return null;
+        return {
+          ...current,
+          files: current.files.filter((f) => f.id !== payload.fileId)
+        };
+      });
     });
     connection.on('disconnect', () => setStatus('Disconnected. Reconnecting...'));
     connection.on('connect', () => setStatus('Connected'));
@@ -635,26 +697,79 @@ function RoomPage() {
           <UploadArea roomId={roomId} token={token} onUploaded={() => setState((current) => current)} />
           <div className="file-list">
             {state?.files.map((file) => (
-              <button
+              <div
                 key={file.id}
                 className="file-card"
-                title="Download"
-                onClick={async () => {
-                  try {
-                    const url = await getDownloadUrl(roomId, file.id, token);
-                    window.open(url, '_blank');
-                  } catch {
-                    alert('Download failed');
-                  }
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  cursor: 'default'
                 }}
               >
-                <strong>{file.originalName}</strong>
-                <span>
-                  {file.size > 1024 * 1024
-                    ? `${(file.size / (1024 * 1024)).toFixed(2)} MB`
-                    : `${Math.ceil(file.size / 1024)} KB`}
-                </span>
-              </button>
+                <button
+                  type="button"
+                  title="Download"
+                  onClick={async () => {
+                    try {
+                      const url = await getDownloadUrl(roomId, file.id, token);
+                      window.open(url, '_blank');
+                    } catch {
+                      alert('Download failed');
+                    }
+                  }}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: 'inherit',
+                    textAlign: 'left',
+                    flex: 1,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    padding: 0
+                  }}
+                >
+                  <strong>{file.originalName}</strong>
+                  <span style={{ marginRight: '16px' }}>
+                    {file.size > 1024 * 1024
+                      ? `${(file.size / (1024 * 1024)).toFixed(2)} MB`
+                      : `${Math.ceil(file.size / 1024)} KB`}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  title="Delete File"
+                  onClick={async (e) => {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    if (confirm(`Are you sure you want to delete ${file.originalName}?`)) {
+                      try {
+                        await deleteFile(roomId, token, file.id);
+                      } catch (err: any) {
+                        alert(`Failed to delete: ${err.message}`);
+                      }
+                    }
+                  }}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: 'var(--danger)',
+                    cursor: 'pointer',
+                    fontSize: '16px',
+                    padding: '4px 8px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    transition: 'opacity 140ms ease'
+                  }}
+                  onMouseOver={(e) => (e.currentTarget.style.opacity = '0.7')}
+                  onMouseOut={(e) => (e.currentTarget.style.opacity = '1')}
+                >
+                  🗑️
+                </button>
+              </div>
             ))}
           </div>
         </section>
