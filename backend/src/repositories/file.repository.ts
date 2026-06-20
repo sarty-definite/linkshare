@@ -33,4 +33,16 @@ export class FileRepository {
     });
     return result._sum.size ?? 0;
   }
+
+  /**
+   * Computes the total size in bytes of all files stored across all rooms.
+   */
+  static async sumAllSizes(): Promise<number> {
+    const result = await prisma.fileAsset.aggregate({
+      _sum: {
+        size: true
+      }
+    });
+    return result._sum.size ?? 0;
+  }
 }

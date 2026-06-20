@@ -1,9 +1,10 @@
 import type { Server as SocketIOServer } from 'socket.io';
+import * as Y from 'yjs';
 import { verifyAccessToken } from '../utils/security.util.js';
 import { RoomService } from '../services/room.service.js';
 import { RoomRepository } from '../repositories/room.repository.js';
 import { CleanupService } from '../services/cleanup.service.js';
-import { contentUpdateSchema } from '../models/schemas.js';
+import { YjsRoomManager } from '../services/yjs.manager.js';
 import { env } from '../config/env.js';
 
 export function initializeSockets(io: SocketIOServer) {
@@ -50,27 +51,34 @@ export function initializeSockets(io: SocketIOServer) {
     io.to(roomId).emit('room:presence', { roomId, presenceCount: activeSet.size });
     CleanupService.scheduleRoomCleanup(roomId, room?.lastActivityAt ?? new Date());
 
-    socket.on('room:content:update', async (payload) => {
-      try {
-        const parsed = contentUpdateSchema.parse(payload);
-        const serialized = JSON.stringify(parsed.documentJson);
-        if (serialized.length > 1_000_000) {
-          return socket.emit('room:error', { message: 'Document is too large' });
-        }
-        
-        const updated = await RoomService.updateContent(roomId, parsed.documentJson);
+    // Load or initialize the master Yjs document in memory
+    const serverDoc = await YjsRoomManager.loadRoom(roomId, room?.documentJson);
 
-        io.to(roomId).emit('room:content:updated', {
-          roomId,
-          documentJson: updated.documentJson,
-          documentVersion: updated.documentVersion,
-          lastActivityAt: updated.lastActivityAt
-        });
-      } catch (error) {
-        socket.emit('room:error', {
-          message: error instanceof Error ? error.message : 'Invalid room content update'
-        });
-      }
+    // Send the server's state vector (Sync Step 1) to the newly connected client
+    const serverStateVector = Y.encodeStateVector(serverDoc);
+    socket.emit('yjs:sync:request', Buffer.from(serverStateVector));
+
+    // Handle client's sync request (client sends their state vector)
+    socket.on('yjs:sync:request', (clientStateVectorBuffer: Buffer) => {
+      const clientStateVector = new Uint8Array(clientStateVectorBuffer);
+      const update = Y.encodeStateAsUpdate(serverDoc, clientStateVector);
+      socket.emit('yjs:sync:reply', Buffer.from(update));
+    });
+
+    // Handle client's sync response (client sends updates missing on the server)
+    socket.on('yjs:sync:reply', (clientUpdateBuffer: Buffer) => {
+      const clientUpdate = new Uint8Array(clientUpdateBuffer);
+      Y.applyUpdate(serverDoc, clientUpdate);
+      socket.to(roomId).emit('yjs:update', clientUpdateBuffer);
+      YjsRoomManager.debouncedPersist(roomId);
+    });
+
+    // Handle incremental collaborative updates from this client
+    socket.on('yjs:update', (updateBuffer: Buffer) => {
+      const update = new Uint8Array(updateBuffer);
+      Y.applyUpdate(serverDoc, update);
+      socket.to(roomId).emit('yjs:update', updateBuffer);
+      YjsRoomManager.debouncedPersist(roomId);
     });
 
     socket.on('disconnect', async () => {
@@ -78,6 +86,10 @@ export function initializeSockets(io: SocketIOServer) {
       roomSockets?.delete(socket.id);
       if (!roomSockets || roomSockets.size === 0) {
         RoomService.removeActiveRoom(roomId);
+        
+        // Force persist the final state and remove from memory cache when the last user disconnects
+        await YjsRoomManager.forcePersistAndCleanup(roomId).catch(() => undefined);
+        
         const lastActivityAt = new Date();
         await RoomRepository.update(roomId, { lastActivityAt }).catch(() => undefined);
         CleanupService.scheduleRoomCleanup(roomId, lastActivityAt);

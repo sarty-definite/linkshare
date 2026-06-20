@@ -32,6 +32,7 @@ const s3Client =
         region: env.S3_REGION,
         endpoint: env.S3_ENDPOINT,
         forcePathStyle: env.S3_FORCE_PATH_STYLE,
+        requestChecksumCalculation: 'WHEN_REQUIRED',
         credentials:
           env.S3_ACCESS_KEY_ID && env.S3_SECRET_ACCESS_KEY
             ? {
@@ -96,4 +97,71 @@ const s3Storage: StorageAdapter = {
   }
 };
 
-export const storage = env.STORAGE_PROVIDER === 's3' ? s3Storage : localStorage;
+const r2Client =
+  env.STORAGE_PROVIDER === 'r2'
+    ? new S3Client({
+        region: 'auto',
+        endpoint: `https://${env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
+        requestChecksumCalculation: 'WHEN_REQUIRED',
+        credentials:
+          env.R2_ACCESS_KEY_ID && env.R2_SECRET_ACCESS_KEY
+            ? {
+                accessKeyId: env.R2_ACCESS_KEY_ID,
+                secretAccessKey: env.R2_SECRET_ACCESS_KEY
+              }
+            : undefined
+      })
+    : null;
+
+const r2Storage: StorageAdapter = {
+  async saveFile(sourcePath, object) {
+    if (!r2Client || !env.R2_BUCKET) {
+      throw new Error('R2 storage is not configured');
+    }
+    const body = fs.createReadStream(sourcePath);
+    await r2Client.send(
+      new PutObjectCommand({
+        Bucket: env.R2_BUCKET,
+        Key: object.key,
+        Body: body,
+        ContentType: object.mimeType
+      })
+    );
+  },
+  async deleteFile(key) {
+    if (!r2Client || !env.R2_BUCKET) {
+      throw new Error('R2 storage is not configured');
+    }
+    await r2Client.send(new DeleteObjectCommand({ Bucket: env.R2_BUCKET, Key: key }));
+  },
+  async createReadStream(key) {
+    if (!r2Client || !env.R2_BUCKET) {
+      throw new Error('R2 storage is not configured');
+    }
+    const response = await r2Client.send(
+      new GetObjectCommand({
+        Bucket: env.R2_BUCKET,
+        Key: key
+      })
+    );
+    if (!response.Body || typeof (response.Body as NodeJS.ReadableStream).pipe !== 'function') {
+      throw new Error('Unexpected R2 response body');
+    }
+    return response.Body as Readable;
+  }
+};
+
+export const storage =
+  env.STORAGE_PROVIDER === 's3' ? s3Storage :
+  env.STORAGE_PROVIDER === 'r2' ? r2Storage :
+  localStorage;
+
+export function getActiveS3Client(): { client: S3Client | null; bucket: string | undefined } {
+  if (env.STORAGE_PROVIDER === 's3') {
+    return { client: s3Client, bucket: env.S3_BUCKET };
+  }
+  if (env.STORAGE_PROVIDER === 'r2') {
+    return { client: r2Client, bucket: env.R2_BUCKET };
+  }
+  return { client: null, bucket: undefined };
+}

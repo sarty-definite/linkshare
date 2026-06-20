@@ -3,6 +3,7 @@ import { RoomRepository } from '../repositories/room.repository.js';
 import { FileRepository } from '../repositories/file.repository.js';
 import { UploadRepository } from '../repositories/upload.repository.js';
 import { storage } from '../config/storage.js';
+import { YjsRoomManager } from './yjs.manager.js';
 import {
   createSalt,
   hashRoomKey,
@@ -122,6 +123,14 @@ export class RoomService {
     const documentJsonString = JSON.stringify(documentJson);
     if (documentJsonString.length > 1_000_000) {
       throw new Error('Document is too large');
+    }
+
+    if (
+      documentJson &&
+      typeof documentJson === 'object' &&
+      documentJson.type === 'yjs'
+    ) {
+      YjsRoomManager.removeDoc(roomId);
     }
 
     const updated = await RoomRepository.update(roomId, {

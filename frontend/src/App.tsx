@@ -12,6 +12,9 @@ import TableHeader from '@tiptap/extension-table-header';
 import TableCell from '@tiptap/extension-table-cell';
 import Underline from '@tiptap/extension-underline';
 import { Socket } from 'socket.io-client';
+import axios from 'axios';
+import * as Y from 'yjs';
+import Collaboration from '@tiptap/extension-collaboration';
 
 function randomRoomKey() {
   const array = new Uint32Array(1);
@@ -188,20 +191,91 @@ function UploadArea({ roomId, token, onUploaded }: { roomId: string; token: stri
 
   async function uploadFile(file: File) {
     try {
-      const init = await createUploadSession(roomId, token, { fileName: file.name, mimeType: file.type || 'application/octet-stream', fileSize: file.size });
-      const chunkSize = init.chunkSize;
-      const status = await getUploadStatus(roomId, token, init.uploadId).catch(() => ({ receivedChunks: 0 }));
-      const startChunk = status.receivedChunks ?? 0;
-      const totalChunks = Math.ceil(file.size / chunkSize);
-
-      for (let chunkIndex = startChunk; chunkIndex < totalChunks; chunkIndex += 1) {
-        const start = chunkIndex * chunkSize;
-        const chunk = file.slice(start, Math.min(file.size, start + chunkSize));
-        await uploadChunk(roomId, token, init.uploadId, chunkIndex, chunk);
-        setMessage(`Uploading ${file.name}: ${Math.round(((chunkIndex + 1) / totalChunks) * 100)}%`);
+      // Dynamically determine chunk size based on file size and previous upload speed
+      let chosenChunkSize = 5 * 1024 * 1024; // Default 5 MB
+      const storedSpeed = window.localStorage.getItem('link-share:last-upload-speed');
+      
+      if (storedSpeed) {
+        const speed = parseFloat(storedSpeed); // bytes per second
+        if (speed < 500 * 1024) {
+          chosenChunkSize = 1 * 1024 * 1024; // 1 MB on slow networks
+        } else if (speed < 1.5 * 1024 * 1024) {
+          chosenChunkSize = 2 * 1024 * 1024; // 2 MB on medium networks
+        } else if (speed > 4 * 1024 * 1024) {
+          chosenChunkSize = 10 * 1024 * 1024; // 10 MB on very fast networks
+        }
+      } else {
+        // Fallback to size-based chunk sizes if no speed data exists
+        if (file.size < 10 * 1024 * 1024) {
+          chosenChunkSize = 1 * 1024 * 1024; // 1 MB for small files
+        } else if (file.size < 50 * 1024 * 1024) {
+          chosenChunkSize = 2 * 1024 * 1024; // 2 MB for medium files
+        }
       }
 
-      const uploaded = await finalizeUpload(roomId, token, init.uploadId);
+      const startTime = Date.now();
+
+      const init = await createUploadSession(roomId, token, {
+        fileName: file.name,
+        mimeType: file.type || 'application/octet-stream',
+        fileSize: file.size,
+        chunkSize: chosenChunkSize
+      });
+      const chunkSize = init.chunkSize;
+      const totalChunks = Math.ceil(file.size / chunkSize);
+
+      let uploaded;
+
+      if (init.presignedUrls && init.presignedUrls.length > 0) {
+        // Direct S3/R2 upload flow: upload chunks directly to Cloudflare R2
+        const parts: { PartNumber: number; ETag: string }[] = [];
+        
+        for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex += 1) {
+          const start = chunkIndex * chunkSize;
+          const chunk = file.slice(start, Math.min(file.size, start + chunkSize));
+          
+          const response = await axios.put(init.presignedUrls[chunkIndex]!, chunk, {
+            headers: {
+              'Content-Type': file.type || 'application/octet-stream'
+            }
+          });
+          
+          const etag = response.headers.etag;
+          if (!etag) {
+            throw new Error(`Failed to retrieve ETag for chunk ${chunkIndex}`);
+          }
+          
+          parts.push({
+            PartNumber: chunkIndex + 1,
+            ETag: etag
+          });
+          
+          setMessage(`Uploading directly ${file.name}: ${Math.round(((chunkIndex + 1) / totalChunks) * 100)}%`);
+        }
+        
+        uploaded = await finalizeUpload(roomId, token, init.uploadId, parts);
+      } else {
+        // Local backend fallback
+        const status = await getUploadStatus(roomId, token, init.uploadId).catch(() => ({ receivedChunks: 0 }));
+        const startChunk = status.receivedChunks ?? 0;
+
+        for (let chunkIndex = startChunk; chunkIndex < totalChunks; chunkIndex += 1) {
+          const start = chunkIndex * chunkSize;
+          const chunk = file.slice(start, Math.min(file.size, start + chunkSize));
+          await uploadChunk(roomId, token, init.uploadId, chunkIndex, chunk);
+          setMessage(`Uploading ${file.name}: ${Math.round(((chunkIndex + 1) / totalChunks) * 100)}%`);
+        }
+
+        uploaded = await finalizeUpload(roomId, token, init.uploadId);
+      }
+      
+      // Calculate and store actual transfer speed (in bytes/sec)
+      const durationSec = (Date.now() - startTime) / 1000;
+      if (durationSec > 0.5) {
+        const transferSpeed = file.size / durationSec;
+        window.localStorage.setItem('link-share:last-upload-speed', transferSpeed.toString());
+      }
+
       onUploaded(uploaded as FileAsset);
       setMessage(`Uploaded ${file.name}`);
     } catch (error: any) {
@@ -257,19 +331,13 @@ function RoomPage() {
   const lastRoomIdRef = useRef(roomId);
   const joinInitiatedRef = useRef(false);
 
+  // Initialize a persistent local Yjs document
+  const [ydoc] = useState(() => new Y.Doc());
+
   if (lastRoomIdRef.current !== roomId) {
     lastRoomIdRef.current = roomId;
     joinInitiatedRef.current = false;
   }
-
-  const debouncedSave = useMemo(() => {
-    return debounce((json: any, version: number) => {
-      void saveRoomContent(roomId, token, json, version)
-        .then((response) => setRemoteVersion(response.documentVersion))
-        .catch(() => undefined);
-      socket?.emit('room:content:update', { documentJson: json, clientVersion: version });
-    }, 1000);
-  }, [roomId, token, socket]);
 
   const editor = useEditor({
     extensions: [
@@ -280,13 +348,13 @@ function RoomPage() {
       Table.configure({ resizable: true }),
       TableRow,
       TableHeader,
-      TableCell
+      TableCell,
+      // Tie the editor to the local Yjs document
+      Collaboration.configure({
+        document: ydoc
+      }) as any
     ],
-    content: { type: 'doc', content: [] },
     onUpdate({ editor }) {
-      if (isRemoteUpdate) return;
-      const json = editor.getJSON();
-      debouncedSave(json, remoteVersion);
       socket?.emit('room:activity');
     }
   });
@@ -314,8 +382,9 @@ function RoomPage() {
       });
   }, [roomId, token]);
 
+  // Fetch initial room state and handle legacy JSON migrations
   useEffect(() => {
-    if (!token) {
+    if (!token || !socket) {
       return;
     }
 
@@ -325,10 +394,17 @@ function RoomPage() {
         if (!mounted) return;
         setState({ presenceCount: response.presenceCount, isPrivate: response.isPrivate, files: response.files });
         setRemoteVersion(response.documentVersion);
-        if (editor) {
-          setIsRemoteUpdate(true);
-          editor.commands.setContent(response.documentJson as Parameters<typeof editor.commands.setContent>[0], false);
-          queueMicrotask(() => setIsRemoteUpdate(false));
+        
+        const content = response.documentJson;
+        if (content && typeof content === 'object' && (content as any).type === 'yjs') {
+          // Document content will be automatically synchronized via Socket.io/Yjs binary protocol
+        } else {
+          // Seed the editor (and the ydoc) with legacy JSON content if it exists
+          if (editor && content) {
+            setIsRemoteUpdate(true);
+            editor.commands.setContent(content, false);
+            queueMicrotask(() => setIsRemoteUpdate(false));
+          }
         }
         setStatus('Connected');
       })
@@ -340,33 +416,47 @@ function RoomPage() {
     return () => {
       mounted = false;
     };
-  }, [editor, roomId, token]);
+  }, [editor, socket, roomId, token]);
 
+  // Bind the local Yjs document to Socket.io events
   useEffect(() => {
     if (!token) return;
     const connection = createRoomSocket(roomId, token);
     setSocket(connection);
 
-    connection.on('room:state', (payload: { users: number; isPrivate: boolean; content: unknown; files: FileAsset[] }) => {
-      setState((current) => ({
-        presenceCount: payload.users,
-        isPrivate: payload.isPrivate,
-        files: payload.files
-      }));
-      if (editor) {
-        setIsRemoteUpdate(true);
-        editor.commands.setContent(payload.content as Parameters<typeof editor.commands.setContent>[0], false);
-        queueMicrotask(() => setIsRemoteUpdate(false));
+    // Listen to local Yjs document updates and send them to the server
+    const handleLocalUpdate = (update: Uint8Array, origin: any) => {
+      if (origin !== connection) {
+        connection.emit('yjs:update', update);
       }
+    };
+    ydoc.on('update', handleLocalUpdate);
+
+    // Listen to remote updates from other clients via the server
+    connection.on('yjs:update', (updateBuffer: ArrayBuffer) => {
+      const update = new Uint8Array(updateBuffer);
+      Y.applyUpdate(ydoc, update, connection);
     });
-    connection.on('room:content:updated', (payload: { documentJson: unknown; documentVersion: number }) => {
-      setRemoteVersion(payload.documentVersion);
-      if (editor) {
-        setIsRemoteUpdate(true);
-        editor.commands.setContent(payload.documentJson as Parameters<typeof editor.commands.setContent>[0], false);
-        queueMicrotask(() => setIsRemoteUpdate(false));
-      }
+
+    // Listen to sync request from the server (Sync Step 1)
+    connection.on('yjs:sync:request', (serverStateVectorBuffer: ArrayBuffer) => {
+      const serverStateVector = new Uint8Array(serverStateVectorBuffer);
+      
+      // Reply with our missing updates
+      const update = Y.encodeStateAsUpdate(ydoc, serverStateVector);
+      connection.emit('yjs:sync:reply', update);
+
+      // Also request what updates we are missing from the server
+      const clientStateVector = Y.encodeStateVector(ydoc);
+      connection.emit('yjs:sync:request', clientStateVector);
     });
+
+    // Handle server sync response (Sync Step 2)
+    connection.on('yjs:sync:reply', (serverUpdateBuffer: ArrayBuffer) => {
+      const serverUpdate = new Uint8Array(serverUpdateBuffer);
+      Y.applyUpdate(ydoc, serverUpdate, connection);
+    });
+
     connection.on('room:presence', (payload: { presenceCount: number }) => {
       setState((current) => (current ? { ...current, presenceCount: payload.presenceCount } : current));
     });
@@ -378,10 +468,11 @@ function RoomPage() {
     connection.on('room:error', (payload: { message: string }) => setJoinError(payload.message));
 
     return () => {
+      ydoc.off('update', handleLocalUpdate);
       connection.disconnect();
       setSocket(null);
     };
-  }, [editor, roomId, token]);
+  }, [ydoc, roomId, token]);
 
   if (!roomId) {
     return <Navigate to="/" replace />;

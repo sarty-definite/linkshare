@@ -75,7 +75,7 @@ export async function createUploadSession(roomId: string, token: string, payload
     payload,
     { headers: { authorization: `Bearer ${token}` } }
   );
-  return response.data as { uploadId: string; chunkSize: number; totalChunks: number; expiresAt: string };
+  return response.data as { uploadId: string; chunkSize: number; totalChunks: number; expiresAt: string; presignedUrls?: string[] };
 }
 
 export async function uploadChunk(roomId: string, token: string, uploadId: string, chunkIndex: number, chunk: Blob) {
@@ -92,10 +92,10 @@ export async function uploadChunk(roomId: string, token: string, uploadId: strin
   return response.data as { uploadId: string; chunkIndex: number; received: boolean };
 }
 
-export async function finalizeUpload(roomId: string, token: string, uploadId: string) {
+export async function finalizeUpload(roomId: string, token: string, uploadId: string, parts?: { PartNumber: number; ETag: string }[]) {
   const response = await api.post(
     `/api/rooms/${encodeURIComponent(roomId)}/uploads/${uploadId}/finalize`,
-    {},
+    { parts },
     { headers: { authorization: `Bearer ${token}` } }
   );
   return response.data as { id: string; roomId: string; originalName: string; safeName: string; mimeType: string; size: number; storageKey: string; createdAt: string };

@@ -2,11 +2,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { env } from '../config/env.js';
-import { storage } from '../config/storage.js';
+import { storage, getActiveS3Client } from '../config/storage.js';
 import { UploadRepository } from '../repositories/upload.repository.js';
 import { FileRepository } from '../repositories/file.repository.js';
 import { RoomService } from './room.service.js';
 import { sanitizeUploadName, buildStorageKey } from '../utils/path.util.js';
+import { CreateMultipartUploadCommand, UploadPartCommand, CompleteMultipartUploadCommand } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
 export class UploadService {
   static async createSession(roomId: string, fileName: string, mimeType: string, fileSize: number, chunkSize: number) {
@@ -16,12 +18,77 @@ export class UploadService {
       throw new Error('Room upload limit exceeded');
     }
 
+    // Validate that the global storage limit (9.5 GB) is not exceeded
+    const globalTotalSize = await FileRepository.sumAllSizes();
+    if (globalTotalSize + fileSize > env.GLOBAL_STORAGE_MAX_BYTES) {
+      throw new Error('Global upload quota exceeded');
+    }
+
+    // S3/R2 direct multipart uploads require a minimum part size of 5 MB (except for the last part)
+    let finalChunkSize = chunkSize;
+    if (env.STORAGE_PROVIDER === 's3' || env.STORAGE_PROVIDER === 'r2') {
+      const minS3ChunkSize = 5 * 1024 * 1024; // 5 MB
+      if (finalChunkSize < minS3ChunkSize) {
+        finalChunkSize = minS3ChunkSize;
+      }
+    }
+
     const safeName = sanitizeUploadName(fileName);
     const uploadId = crypto.randomUUID();
     const tmpDir = path.join(env.UPLOAD_TMP_DIR, roomId, uploadId);
-    await fs.promises.mkdir(tmpDir, { recursive: true });
-    const totalChunks = Math.max(1, Math.ceil(fileSize / chunkSize));
+    
+    // Only create local temp directory if we are using local storage provider
+    if (env.STORAGE_PROVIDER === 'local') {
+      await fs.promises.mkdir(tmpDir, { recursive: true });
+    }
+    
+    const totalChunks = Math.max(1, Math.ceil(fileSize / finalChunkSize));
     const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+
+    let s3UploadId: string | null = null;
+    let s3Key: string | null = null;
+    const presignedUrls: string[] = [];
+
+    // If using S3/R2 storage provider, initiate Multipart Upload and generate presigned URLs
+    if (env.STORAGE_PROVIDER === 's3' || env.STORAGE_PROVIDER === 'r2') {
+      const { client, bucket } = getActiveS3Client();
+      if (!client || !bucket) {
+        throw new Error('Active storage provider is not properly configured');
+      }
+
+      const fileId = crypto.randomUUID();
+      s3Key = buildStorageKey(roomId, fileId, safeName);
+
+      const multipart = await client.send(
+        new CreateMultipartUploadCommand({
+          Bucket: bucket,
+          Key: s3Key,
+          ContentType: mimeType
+        })
+      );
+      s3UploadId = multipart.UploadId ?? null;
+      if (!s3UploadId) {
+        throw new Error('Failed to initiate multipart upload session');
+      }
+
+      // Generate a presigned URL for each part
+      for (let i = 1; i <= totalChunks; i++) {
+        const url = await getSignedUrl(
+          client,
+          new UploadPartCommand({
+            Bucket: bucket,
+            Key: s3Key,
+            UploadId: s3UploadId,
+            PartNumber: i
+          }),
+          {
+            expiresIn: 3600 * 24,
+            unhoistableHeaders: new Set(['x-amz-checksum-crc32', 'x-amz-sdk-checksum-algorithm'])
+          }
+        );
+        presignedUrls.push(url);
+      }
+    }
 
     const session = await UploadRepository.create({
       id: uploadId,
@@ -30,10 +97,12 @@ export class UploadService {
       safeName,
       mimeType,
       fileSize,
-      chunkSize,
+      chunkSize: finalChunkSize,
       totalChunks,
       tmpDir,
-      expiresAt
+      expiresAt,
+      s3UploadId,
+      s3Key
     });
 
     RoomService.touchRoom(roomId);
@@ -42,7 +111,9 @@ export class UploadService {
       uploadId: session.id,
       chunkSize: session.chunkSize,
       totalChunks: session.totalChunks,
-      expiresAt: session.expiresAt
+      expiresAt: session.expiresAt,
+      storageProvider: env.STORAGE_PROVIDER,
+      presignedUrls
     };
   }
 
@@ -95,7 +166,7 @@ export class UploadService {
     };
   }
 
-  static async finalizeUpload(roomId: string, uploadId: string) {
+  static async finalizeUpload(roomId: string, uploadId: string, parts?: { PartNumber: number; ETag: string }[]) {
     const session = await UploadRepository.findById(uploadId);
     if (!session || session.roomId !== roomId) {
       throw new Error('Upload session not found');
@@ -105,53 +176,89 @@ export class UploadService {
       throw new Error('Upload session expired');
     }
 
-    const chunkPaths = Array.from({ length: session.totalChunks }, (_, index) =>
-      path.join(session.tmpDir, `${index}.part`)
-    );
+    let fileId: string = crypto.randomUUID();
+    let storageKey = '';
 
-    for (const chunkPath of chunkPaths) {
-      if (!fs.existsSync(chunkPath)) {
-        throw new Error('Missing uploaded chunks');
+    if (env.STORAGE_PROVIDER === 's3' || env.STORAGE_PROVIDER === 'r2') {
+      if (!session.s3UploadId || !session.s3Key || !parts || parts.length === 0) {
+        throw new Error('Missing multipart upload session data');
       }
-    }
 
-    const assembledPath = path.join(session.tmpDir, `${session.id}.assembled`);
-    await new Promise<void>((resolve, reject) => {
-      const writeStream = fs.createWriteStream(assembledPath);
-      let currentIndex = 0;
-      const appendNext = () => {
-        if (currentIndex >= chunkPaths.length) {
-          writeStream.end();
-          resolve();
-          return;
+      const { client, bucket } = getActiveS3Client();
+      if (!client || !bucket) {
+        throw new Error('Active storage provider is not properly configured');
+      }
+
+      // Complete the multipart upload on S3/R2
+      await client.send(
+        new CompleteMultipartUploadCommand({
+          Bucket: bucket,
+          Key: session.s3Key,
+          UploadId: session.s3UploadId,
+          MultipartUpload: {
+            Parts: parts.sort((a, b) => a.PartNumber - b.PartNumber)
+          }
+        })
+      );
+
+      // Parse fileId from the storageKey
+      storageKey = session.s3Key;
+      // Key format is: `${roomId}/${fileId}-${fileName}`
+      const keyParts = storageKey.split('/');
+      const fileNamePart = keyParts[keyParts.length - 1];
+      if (fileNamePart && fileNamePart.includes('-')) {
+        fileId = fileNamePart.split('-')[0] || fileId;
+      }
+    } else {
+      // Local disk fallback
+      const chunkPaths = Array.from({ length: session.totalChunks }, (_, index) =>
+        path.join(session.tmpDir, `${index}.part`)
+      );
+
+      for (const chunkPath of chunkPaths) {
+        if (!fs.existsSync(chunkPath)) {
+          throw new Error('Missing uploaded chunks');
         }
-        const chunkPath = chunkPaths[currentIndex];
-        if (!chunkPath) {
-          reject(new Error('Missing chunk path'));
-          return;
-        }
+      }
 
-        const readStream = fs.createReadStream(chunkPath);
-        readStream.on('error', reject);
-        readStream.on('end', () => {
-          currentIndex += 1;
-          appendNext();
-        });
-        readStream.pipe(writeStream, { end: false });
-      };
-      writeStream.on('error', reject);
-      appendNext();
-    });
+      const assembledPath = path.join(session.tmpDir, `${session.id}.assembled`);
+      await new Promise<void>((resolve, reject) => {
+        const writeStream = fs.createWriteStream(assembledPath);
+        let currentIndex = 0;
+        const appendNext = () => {
+          if (currentIndex >= chunkPaths.length) {
+            writeStream.end();
+            resolve();
+            return;
+          }
+          const chunkPath = chunkPaths[currentIndex];
+          if (!chunkPath) {
+            reject(new Error('Missing chunk path'));
+            return;
+          }
 
-    const stats = await fs.promises.stat(assembledPath);
-    if (stats.size !== session.fileSize) {
+          const readStream = fs.createReadStream(chunkPath);
+          readStream.on('error', reject);
+          readStream.on('end', () => {
+            currentIndex += 1;
+            appendNext();
+          });
+          readStream.pipe(writeStream, { end: false });
+        };
+        writeStream.on('error', reject);
+        appendNext();
+      });
+
+      const stats = await fs.promises.stat(assembledPath);
+      if (stats.size !== session.fileSize) {
+        await fs.promises.rm(session.tmpDir, { recursive: true, force: true }).catch(() => undefined);
+        throw new Error('Assembled file size does not match session file size');
+      }
+
+      storageKey = buildStorageKey(roomId, fileId, session.safeName);
+      await storage.saveFile(assembledPath, { key: storageKey, mimeType: session.mimeType });
       await fs.promises.rm(session.tmpDir, { recursive: true, force: true }).catch(() => undefined);
-      throw new Error('Assembled file size does not match session file size');
     }
-
-    const fileId = crypto.randomUUID();
-    const storageKey = buildStorageKey(roomId, fileId, session.safeName);
-    await storage.saveFile(assembledPath, { key: storageKey, mimeType: session.mimeType });
 
     const file = await FileRepository.create({
       id: fileId,
@@ -164,7 +271,6 @@ export class UploadService {
     });
 
     await UploadRepository.delete(session.id);
-    await fs.promises.rm(session.tmpDir, { recursive: true, force: true }).catch(() => undefined);
     await RoomService.touchRoom(roomId);
 
     return file;

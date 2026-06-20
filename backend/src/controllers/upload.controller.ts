@@ -63,7 +63,7 @@ export class UploadController {
       const room = await requireRoomAuth(req, roomId);
       const uploadId = String(req.params.uploadId || '');
 
-      const file = await UploadService.finalizeUpload(room.id, uploadId);
+      const file = await UploadService.finalizeUpload(room.id, uploadId, req.body.parts);
 
       const io = req.app.get('io') as SocketIOServer | undefined;
       if (io) {

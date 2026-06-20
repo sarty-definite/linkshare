@@ -50,6 +50,8 @@ model UploadSession {
   tmpDir          String
   status          String   @default("pending")
   expiresAt       DateTime
+  s3UploadId      String?
+  s3Key           String?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
