@@ -56,7 +56,7 @@ export class UploadService {
         throw new Error('Active storage provider is not properly configured');
       }
 
-      const fileId = crypto.randomUUID();
+      const fileId = uploadId;
       s3Key = buildStorageKey(roomId, fileId, safeName);
 
       const multipart = await client.send(
@@ -169,6 +169,11 @@ export class UploadService {
   static async finalizeUpload(roomId: string, uploadId: string, parts?: { PartNumber: number; ETag: string }[]) {
     const session = await UploadRepository.findById(uploadId);
     if (!session || session.roomId !== roomId) {
+      // If the session is already deleted, check if the file was already finalized and created
+      const existing = await FileRepository.findById(uploadId);
+      if (existing && existing.roomId === roomId) {
+        return existing;
+      }
       throw new Error('Upload session not found');
     }
 
@@ -176,7 +181,7 @@ export class UploadService {
       throw new Error('Upload session expired');
     }
 
-    let fileId: string = crypto.randomUUID();
+    let fileId: string = uploadId;
     let storageKey = '';
 
     if (env.STORAGE_PROVIDER === 's3' || env.STORAGE_PROVIDER === 'r2') {
@@ -260,15 +265,27 @@ export class UploadService {
       await fs.promises.rm(session.tmpDir, { recursive: true, force: true }).catch(() => undefined);
     }
 
-    const file = await FileRepository.create({
-      id: fileId,
-      roomId,
-      originalName: session.fileName,
-      safeName: session.safeName,
-      mimeType: session.mimeType,
-      size: session.fileSize,
-      storageKey
-    });
+    let file;
+    try {
+      file = await FileRepository.create({
+        id: fileId,
+        roomId,
+        originalName: session.fileName,
+        safeName: session.safeName,
+        mimeType: session.mimeType,
+        size: session.fileSize,
+        storageKey
+      });
+    } catch (err: any) {
+      if (err.code === 'P2002' || err.message?.includes('Unique constraint failed')) {
+        const existing = await FileRepository.findById(fileId);
+        if (existing) {
+          await UploadRepository.delete(session.id).catch(() => undefined);
+          return existing;
+        }
+      }
+      throw err;
+    }
 
     await UploadRepository.delete(session.id);
     await RoomService.touchRoom(roomId);

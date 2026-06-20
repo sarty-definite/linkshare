@@ -381,6 +381,53 @@ h1 {
   line-height: 1.75;
 }
 
+.editor-surface .ProseMirror a {
+  color: var(--accent);
+  text-decoration: underline dotted;
+  text-underline-offset: 4px;
+  cursor: pointer;
+  transition: color 140ms ease;
+}
+
+.editor-surface .ProseMirror a:hover {
+  color: var(--accent-strong);
+}
+
+.link-bubble-menu {
+  background: rgba(15, 23, 42, 0.96);
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.5);
+  padding: 6px 12px;
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 0.85rem;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  backdrop-filter: blur(8px);
+}
+
+.link-bubble-menu span {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.link-bubble-menu a {
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 600;
+  max-width: 250px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: color 140ms ease;
+}
+
+.link-bubble-menu a:hover {
+  color: var(--accent-strong);
+  text-decoration: underline;
+}
+
 .editor-surface .ProseMirror table {
   border-collapse: collapse;
   width: 100%;

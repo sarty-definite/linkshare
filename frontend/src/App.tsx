@@ -3,7 +3,7 @@ import { Navigate, Route, Routes, useNavigate, useParams } from 'react-router-do
 import { createRoom, createUploadSession, fetchRoomState, finalizeUpload, getDownloadUrl, getUploadStatus, joinRoom, roomExists, saveRoomContent, uploadChunk, cancelUpload, deleteFile, type FileAsset } from './lib/api';
 import { generateInstantRoomId } from './lib/room-generator';
 import { createRoomSocket } from './lib/socket';
-import { EditorContent, useEditor } from '@tiptap/react';
+import { BubbleMenu, EditorContent, useEditor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Link from '@tiptap/extension-link';
 import Placeholder from '@tiptap/extension-placeholder';
@@ -187,18 +187,47 @@ import { formattingActions } from './config/editor-formatting';
 
 function Toolbar({ editor }: { editor: any }) {
   if (!editor) return null;
+  const isLink = editor.isActive('link');
+  const linkHref = isLink ? editor.getAttributes('link').href : '';
+
   return (
-    <div className="toolbar">
-      {formattingActions.map((item) => (
-        <button
-          key={item.title}
-          onClick={() => item.action(editor)}
-          className={item.isActive(editor) ? 'active' : ''}
-          title={item.title}
+    <div className="toolbar" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
+      <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+        {formattingActions.map((item) => (
+          <button
+            key={item.title}
+            onClick={() => item.action(editor)}
+            className={item.isActive(editor) ? 'active' : ''}
+            title={item.title}
+          >
+            {item.label}
+          </button>
+        ))}
+      </div>
+      {isLink && linkHref && (
+        <a
+          href={linkHref}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="toolbar-link-preview"
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '6px',
+            padding: '4px 10px',
+            borderRadius: '6px',
+            background: 'rgba(56, 189, 248, 0.15)',
+            color: 'var(--accent)',
+            fontSize: '0.82rem',
+            fontWeight: '600',
+            border: '1px solid rgba(125, 211, 252, 0.3)',
+            transition: 'all 140ms ease',
+            textDecoration: 'none'
+          }}
         >
-          {item.label}
-        </button>
-      ))}
+          Open Link ↗
+        </a>
+      )}
     </div>
   );
 }
@@ -432,7 +461,11 @@ function RoomPage() {
     extensions: [
       StarterKit,
       Underline,
-      Link.configure({ openOnClick: false, autolink: true }),
+      Link.extend({
+        renderHTML({ HTMLAttributes }) {
+          return ['a', { ...HTMLAttributes, title: `Ctrl+Click to open: ${HTMLAttributes.href}` }, 0];
+        }
+      }).configure({ openOnClick: false, autolink: true }),
       Placeholder.configure({ placeholder: 'Start typing...' }),
       Table.configure({ resizable: true }),
       TableRow,
@@ -443,6 +476,21 @@ function RoomPage() {
         document: ydoc
       }) as any
     ],
+    editorProps: {
+      handleClick(view, pos, event) {
+        const target = event.target as HTMLElement;
+        if (target && target.tagName === 'A') {
+          if (event.ctrlKey || event.metaKey) {
+            const href = target.getAttribute('href');
+            if (href) {
+              window.open(href, '_blank', 'noopener,noreferrer');
+              return true;
+            }
+          }
+        }
+        return false;
+      }
+    },
     onUpdate({ editor }) {
       socket?.emit('room:activity');
     }
@@ -722,6 +770,24 @@ function RoomPage() {
       <div className="room-main-layout">
         <section className={`panel editor-panel ${activeTab === 'text' ? 'tab-visible' : 'tab-hidden'}`} style={{ display: 'flex', flexDirection: 'column' }}>
           <Toolbar editor={editor} />
+          {editor && (
+            <BubbleMenu
+              editor={editor}
+              tippyOptions={{ duration: 150 }}
+              shouldShow={({ editor }) => editor.isActive('link')}
+            >
+              <div className="link-bubble-menu">
+                <span>Link:</span>
+                <a
+                  href={editor.getAttributes('link').href || '#'}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  {editor.getAttributes('link').href}
+                </a>
+              </div>
+            </BubbleMenu>
+          )}
           <EditorContent editor={editor} className="editor-surface" style={{ flex: 1, minHeight: '380px' }} />
         </section>
 
