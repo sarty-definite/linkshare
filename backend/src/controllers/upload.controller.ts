@@ -1,14 +1,14 @@
-import type { Request, Response, NextFunction } from 'express';
-import { UploadService } from '../services/upload.service.js';
-import { requireRoomAuth } from '../middleware/auth.middleware.js';
-import { uploadCreateSchema } from '../models/schemas.js';
-import { normalizeRoomId } from '../utils/path.util.js';
-import type { Server as SocketIOServer } from 'socket.io';
+import type { Request, Response, NextFunction } from "express";
+import { UploadService } from "../services/upload.service.js";
+import { requireRoomAuth } from "../middleware/auth.middleware.js";
+import { uploadCreateSchema } from "../models/schemas.js";
+import { normalizeRoomId } from "../utils/path.util.js";
+import type { Server as SocketIOServer } from "socket.io";
 
 export class UploadController {
   static async initiate(req: Request, res: Response, next: NextFunction) {
     try {
-      const roomId = normalizeRoomId(String(req.params['roomId'] || ''));
+      const roomId = normalizeRoomId(String(req.params["roomId"] || ""));
       const room = await requireRoomAuth(req, roomId);
       const parsed = uploadCreateSchema.parse(req.body);
 
@@ -17,7 +17,7 @@ export class UploadController {
         parsed.fileName,
         parsed.mimeType,
         parsed.fileSize,
-        parsed.chunkSize
+        parsed.chunkSize,
       );
 
       res.status(201).json(session);
@@ -28,9 +28,9 @@ export class UploadController {
 
   static async getStatus(req: Request, res: Response, next: NextFunction) {
     try {
-      const roomId = normalizeRoomId(String(req.params['roomId'] || ''));
+      const roomId = normalizeRoomId(String(req.params["roomId"] || ""));
       const room = await requireRoomAuth(req, roomId);
-      const uploadId = String(req.params.uploadId || '');
+      const uploadId = String(req.params.uploadId || "");
 
       const status = await UploadService.getSession(room.id, uploadId);
       res.json(status);
@@ -41,16 +41,21 @@ export class UploadController {
 
   static async uploadChunk(req: Request, res: Response, next: NextFunction) {
     try {
-      const roomId = normalizeRoomId(String(req.params['roomId'] || ''));
+      const roomId = normalizeRoomId(String(req.params["roomId"] || ""));
       const room = await requireRoomAuth(req, roomId);
-      const uploadId = String(req.params.uploadId || '');
+      const uploadId = String(req.params.uploadId || "");
 
       if (!Buffer.isBuffer(req.body)) {
-        return res.status(400).json({ error: 'Missing chunk body' });
+        return res.status(400).json({ error: "Missing chunk body" });
       }
 
       const chunkIndex = Number(req.params.chunkIndex);
-      const result = await UploadService.saveChunk(room.id, uploadId, chunkIndex, req.body);
+      const result = await UploadService.saveChunk(
+        room.id,
+        uploadId,
+        chunkIndex,
+        req.body,
+      );
       res.json(result);
     } catch (error) {
       next(error);
@@ -59,15 +64,19 @@ export class UploadController {
 
   static async finalize(req: Request, res: Response, next: NextFunction) {
     try {
-      const roomId = normalizeRoomId(String(req.params['roomId'] || ''));
+      const roomId = normalizeRoomId(String(req.params["roomId"] || ""));
       const room = await requireRoomAuth(req, roomId);
-      const uploadId = String(req.params.uploadId || '');
+      const uploadId = String(req.params.uploadId || "");
 
-      const file = await UploadService.finalizeUpload(room.id, uploadId, req.body.parts);
+      const file = await UploadService.finalizeUpload(
+        room.id,
+        uploadId,
+        req.body.parts,
+      );
 
-      const io = req.app.get('io') as SocketIOServer | undefined;
+      const io = req.app.get("io") as SocketIOServer | undefined;
       if (io) {
-        io.to(room.id).emit('room:file:created', file);
+        io.to(room.id).emit("room:file:created", file);
       }
 
       res.status(201).json(file);
@@ -78,9 +87,9 @@ export class UploadController {
 
   static async cancel(req: Request, res: Response, next: NextFunction) {
     try {
-      const roomId = normalizeRoomId(String(req.params['roomId'] || ''));
+      const roomId = normalizeRoomId(String(req.params["roomId"] || ""));
       const room = await requireRoomAuth(req, roomId);
-      const uploadId = String(req.params.uploadId || '');
+      const uploadId = String(req.params.uploadId || "");
 
       await UploadService.cancelUpload(room.id, uploadId);
 
@@ -92,15 +101,15 @@ export class UploadController {
 
   static async deleteFile(req: Request, res: Response, next: NextFunction) {
     try {
-      const roomId = normalizeRoomId(String(req.params['roomId'] || ''));
+      const roomId = normalizeRoomId(String(req.params["roomId"] || ""));
       const room = await requireRoomAuth(req, roomId);
-      const fileId = String(req.params.fileId || '');
+      const fileId = String(req.params.fileId || "");
 
       await UploadService.deleteFile(room.id, fileId);
 
-      const io = req.app.get('io') as SocketIOServer | undefined;
+      const io = req.app.get("io") as SocketIOServer | undefined;
       if (io) {
-        io.to(room.id).emit('room:file:deleted', { fileId });
+        io.to(room.id).emit("room:file:deleted", { fileId });
       }
 
       res.json({ ok: true });

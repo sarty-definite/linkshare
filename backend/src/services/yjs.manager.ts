@@ -1,5 +1,5 @@
-import * as Y from 'yjs';
-import { RoomRepository } from '../repositories/room.repository.js';
+import * as Y from "yjs";
+import { RoomRepository } from "../repositories/room.repository.js";
 
 export class YjsRoomManager {
   private static activeDocs = new Map<string, Y.Doc>();
@@ -35,7 +35,7 @@ export class YjsRoomManager {
    */
   static deserializeState(base64State: string): Y.Doc {
     const doc = new Y.Doc();
-    const binary = Buffer.from(base64State, 'base64');
+    const binary = Buffer.from(base64State, "base64");
     Y.applyUpdate(doc, binary);
     return doc;
   }
@@ -45,7 +45,7 @@ export class YjsRoomManager {
    */
   static serializeState(doc: Y.Doc): string {
     const binary = Y.encodeStateAsUpdate(doc);
-    return Buffer.from(binary).toString('base64');
+    return Buffer.from(binary).toString("base64");
   }
 
   /**
@@ -59,18 +59,18 @@ export class YjsRoomManager {
     }
 
     doc = new Y.Doc();
-    
+
     // Check if the database contains a serialized Yjs state
     if (
       documentJson &&
-      typeof documentJson === 'object' &&
-      documentJson.type === 'yjs' &&
-      typeof documentJson.state === 'string'
+      typeof documentJson === "object" &&
+      documentJson.type === "yjs" &&
+      typeof documentJson.state === "string"
     ) {
-      const binary = Buffer.from(documentJson.state, 'base64');
+      const binary = Buffer.from(documentJson.state, "base64");
       Y.applyUpdate(doc, binary);
     }
-    
+
     this.activeDocs.set(roomId, doc);
     return doc;
   }
@@ -85,10 +85,10 @@ export class YjsRoomManager {
     const base64 = this.serializeState(doc);
     await RoomRepository.update(roomId, {
       documentJson: {
-        type: 'yjs',
-        state: base64
+        type: "yjs",
+        state: base64,
       },
-      lastActivityAt: new Date()
+      lastActivityAt: new Date(),
     });
   }
 

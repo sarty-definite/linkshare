@@ -1,23 +1,23 @@
-import { prisma } from '../config/db.js';
-import type { Prisma } from '@prisma/client';
+import { prisma } from "../config/db.js";
+import type { Prisma } from "@prisma/client";
 
 export class FileRepository {
   static async findById(id: string) {
     return prisma.fileAsset.findUnique({
-      where: { id }
+      where: { id },
     });
   }
 
   static async findByRoomId(roomId: string) {
     return prisma.fileAsset.findMany({
       where: { roomId },
-      orderBy: { createdAt: 'desc' }
+      orderBy: { createdAt: "desc" },
     });
   }
 
   static async create(data: Prisma.FileAssetUncheckedCreateInput) {
     return prisma.fileAsset.create({
-      data
+      data,
     });
   }
 
@@ -28,8 +28,8 @@ export class FileRepository {
     const result = await prisma.fileAsset.aggregate({
       where: { roomId },
       _sum: {
-        size: true
-      }
+        size: true,
+      },
     });
     return result._sum.size ?? 0;
   }
@@ -40,15 +40,15 @@ export class FileRepository {
   static async sumAllSizes(): Promise<number> {
     const result = await prisma.fileAsset.aggregate({
       _sum: {
-        size: true
-      }
+        size: true,
+      },
     });
     return result._sum.size ?? 0;
   }
 
   static async delete(id: string) {
     return prisma.fileAsset.delete({
-      where: { id }
+      where: { id },
     });
   }
 }

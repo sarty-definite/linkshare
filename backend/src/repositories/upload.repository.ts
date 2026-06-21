@@ -1,34 +1,34 @@
-import { prisma } from '../config/db.js';
-import type { Prisma } from '@prisma/client';
+import { prisma } from "../config/db.js";
+import type { Prisma } from "@prisma/client";
 
 export class UploadRepository {
   static async findById(id: string) {
     return prisma.uploadSession.findUnique({
-      where: { id }
+      where: { id },
     });
   }
 
   static async findByRoomId(roomId: string) {
     return prisma.uploadSession.findMany({
-      where: { roomId }
+      where: { roomId },
     });
   }
 
   static async create(data: Prisma.UploadSessionUncheckedCreateInput) {
     return prisma.uploadSession.create({
-      data
+      data,
     });
   }
 
   static async delete(id: string) {
     return prisma.uploadSession.delete({
-      where: { id }
+      where: { id },
     });
   }
 
   static async findExpiredSessions(now: Date) {
     return prisma.uploadSession.findMany({
-      where: { expiresAt: { lt: now } }
+      where: { expiresAt: { lt: now } },
     });
   }
 }

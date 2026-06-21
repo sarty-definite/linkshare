@@ -1,4 +1,4 @@
-import sanitizeFilename from 'sanitize-filename';
+import sanitizeFilename from "sanitize-filename";
 
 export function normalizeRoomId(roomId: string) {
   return roomId.trim();
@@ -9,10 +9,14 @@ export function isValidRoomId(roomId: string) {
 }
 
 export function sanitizeUploadName(fileName: string) {
-  const base = sanitizeFilename(fileName) || 'file';
-  return base.replace(/\s+/g, '-');
+  const base = sanitizeFilename(fileName) || "file";
+  return base.replace(/\s+/g, "-");
 }
 
-export function buildStorageKey(roomId: string, fileId: string, safeName: string) {
+export function buildStorageKey(
+  roomId: string,
+  fileId: string,
+  safeName: string,
+) {
   return `${roomId}/${fileId}/${safeName}`;
 }

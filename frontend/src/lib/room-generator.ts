@@ -1,5 +1,5 @@
-import { roomExists } from './api';
-import { adjectives, nouns } from '../config/word-lists';
+import { roomExists } from "./api";
+import { adjectives, nouns } from "../config/word-lists";
 
 function getRandomElement<T>(array: T[]): T {
   return array[Math.floor(Math.random() * array.length)];
@@ -11,7 +11,7 @@ function getRandomNumber(min: number, max: number): number {
 
 export async function generateInstantRoomId(): Promise<string> {
   const maxRetries = 5;
-  let candidate = '';
+  let candidate = "";
 
   for (let i = 0; i < maxRetries; i++) {
     const adjective = getRandomElement(adjectives);

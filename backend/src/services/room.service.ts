@@ -1,16 +1,16 @@
-import fs from 'node:fs';
-import { RoomRepository } from '../repositories/room.repository.js';
-import { FileRepository } from '../repositories/file.repository.js';
-import { UploadRepository } from '../repositories/upload.repository.js';
-import { storage } from '../config/storage.js';
-import { YjsRoomManager } from './yjs.manager.js';
+import fs from "node:fs";
+import { RoomRepository } from "../repositories/room.repository.js";
+import { FileRepository } from "../repositories/file.repository.js";
+import { UploadRepository } from "../repositories/upload.repository.js";
+import { storage } from "../config/storage.js";
+import { YjsRoomManager } from "./yjs.manager.js";
 import {
   createSalt,
   hashRoomKey,
   compareRoomKey,
   signAccessToken,
-  starterDocument
-} from '../utils/security.util.js';
+  starterDocument,
+} from "../utils/security.util.js";
 
 export class RoomService {
   static activeRooms = new Map<string, Set<string>>();
@@ -33,7 +33,9 @@ export class RoomService {
   }
 
   static touchRoom(roomId: string) {
-    void RoomRepository.update(roomId, { lastActivityAt: new Date() }).catch(() => undefined);
+    void RoomRepository.update(roomId, { lastActivityAt: new Date() }).catch(
+      () => undefined,
+    );
   }
 
   static async exists(roomId: string): Promise<boolean> {
@@ -41,18 +43,23 @@ export class RoomService {
     return Boolean(room);
   }
 
-  static async createRoom(roomId: string, privateRoom: boolean, roomKey?: string) {
+  static async createRoom(
+    roomId: string,
+    privateRoom: boolean,
+    roomKey?: string,
+  ) {
     const existing = await RoomRepository.findById(roomId);
     if (existing) {
-      throw new Error('Room already exists');
+      throw new Error("Room already exists");
     }
 
     if (privateRoom && !roomKey) {
-      throw new Error('Private rooms require a room key');
+      throw new Error("Private rooms require a room key");
     }
 
     const roomKeySalt = privateRoom ? createSalt() : null;
-    const roomKeyHash = privateRoom && roomKey ? hashRoomKey(roomKey, roomKeySalt!) : null;
+    const roomKeyHash =
+      privateRoom && roomKey ? hashRoomKey(roomKey, roomKeySalt!) : null;
 
     const room = await RoomRepository.create({
       id: roomId,
@@ -61,7 +68,7 @@ export class RoomService {
       roomKeyHash,
       documentJson: starterDocument,
       documentVersion: 1,
-      lastActivityAt: new Date()
+      lastActivityAt: new Date(),
     });
 
     const accessToken = signAccessToken(room.id);
@@ -69,22 +76,22 @@ export class RoomService {
       roomId: room.id,
       accessToken,
       isPrivate: room.isPrivate,
-      createdAt: room.createdAt
+      createdAt: room.createdAt,
     };
   }
 
   static async joinRoom(roomId: string, roomKey?: string) {
     const room = await RoomRepository.findById(roomId);
     if (!room) {
-      throw new Error('Room does not exist.');
+      throw new Error("Room does not exist.");
     }
 
     if (room.isPrivate) {
       if (!roomKey || !room.roomKeyHash || !room.roomKeySalt) {
-        throw new Error('Room key required.');
+        throw new Error("Room key required.");
       }
       if (!compareRoomKey(roomKey, room.roomKeySalt, room.roomKeyHash)) {
-        throw new Error('Invalid room key.');
+        throw new Error("Invalid room key.");
       }
     }
 
@@ -95,14 +102,14 @@ export class RoomService {
       roomId: room.id,
       accessToken,
       isPrivate: room.isPrivate,
-      createdAt: room.createdAt
+      createdAt: room.createdAt,
     };
   }
 
   static async getRoomState(roomId: string) {
     const room = await RoomRepository.findById(roomId);
     if (!room) {
-      throw new Error('Room does not exist');
+      throw new Error("Room does not exist");
     }
 
     this.touchRoom(room.id);
@@ -115,20 +122,20 @@ export class RoomService {
       documentVersion: room.documentVersion,
       lastActivityAt: room.lastActivityAt,
       presenceCount: this.getPresenceCount(room.id),
-      files
+      files,
     };
   }
 
   static async updateContent(roomId: string, documentJson: any) {
     const documentJsonString = JSON.stringify(documentJson);
     if (documentJsonString.length > 1_000_000) {
-      throw new Error('Document is too large');
+      throw new Error("Document is too large");
     }
 
     if (
       documentJson &&
-      typeof documentJson === 'object' &&
-      documentJson.type === 'yjs'
+      typeof documentJson === "object" &&
+      documentJson.type === "yjs"
     ) {
       YjsRoomManager.removeDoc(roomId);
     }
@@ -136,7 +143,7 @@ export class RoomService {
     const updated = await RoomRepository.update(roomId, {
       documentJson,
       documentVersion: { increment: 1 },
-      lastActivityAt: new Date()
+      lastActivityAt: new Date(),
     });
 
     return updated;
@@ -147,12 +154,16 @@ export class RoomService {
     const uploads = await UploadRepository.findByRoomId(roomId);
 
     await Promise.all(
-      files.map((file) => storage.deleteFile(file.storageKey).catch(() => undefined))
+      files.map((file) =>
+        storage.deleteFile(file.storageKey).catch(() => undefined),
+      ),
     );
     await Promise.all(
       uploads.map((upload) =>
-        fs.promises.rm(upload.tmpDir, { recursive: true, force: true }).catch(() => undefined)
-      )
+        fs.promises
+          .rm(upload.tmpDir, { recursive: true, force: true })
+          .catch(() => undefined),
+      ),
     );
 
     await RoomRepository.delete(roomId).catch(() => undefined);

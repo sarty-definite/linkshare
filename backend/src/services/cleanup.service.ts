@@ -1,8 +1,8 @@
-import fs from 'node:fs';
-import { env } from '../config/env.js';
-import { RoomRepository } from '../repositories/room.repository.js';
-import { UploadRepository } from '../repositories/upload.repository.js';
-import { RoomService } from './room.service.js';
+import fs from "node:fs";
+import { env } from "../config/env.js";
+import { RoomRepository } from "../repositories/room.repository.js";
+import { UploadRepository } from "../repositories/upload.repository.js";
+import { RoomService } from "./room.service.js";
 
 export class CleanupService {
   static pendingCleanup = new Map<string, NodeJS.Timeout>();
@@ -35,7 +35,9 @@ export class CleanupService {
   static async pruneExpiredUploadSessions() {
     const expired = await UploadRepository.findExpiredSessions(new Date());
     for (const session of expired) {
-      await fs.promises.rm(session.tmpDir, { recursive: true, force: true }).catch(() => undefined);
+      await fs.promises
+        .rm(session.tmpDir, { recursive: true, force: true })
+        .catch(() => undefined);
       await UploadRepository.delete(session.id).catch(() => undefined);
     }
   }
